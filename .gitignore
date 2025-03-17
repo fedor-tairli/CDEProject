@@ -24,6 +24,7 @@ Thumbs.db
 .vscode/
 .idea/
 *.swp
+*~
 
 # Ignore Data Files
 *.pkl
