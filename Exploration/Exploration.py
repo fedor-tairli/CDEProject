@@ -4,14 +4,13 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 import pickle
+import seaborn as sns
 os.system('clear')
 
 import warnings
 warnings.filterwarnings("ignore")
 
 from adst3 import RecEventProvider, GetDetectorGeometry
-
-# Generate Available filenames
 
 print('Older code here has absolute paths sometimes, GOTTA FIX THAT')
 
@@ -21,86 +20,252 @@ files = os.listdir(DataDir+'/low_cut')
 files = [f for f in files if f.endswith('.root')]
 files = [f for f in files if 'b01' in f]
 files.sort()# Sort files alphabetically
+files = [DataDir+'/low_cut/'+f for f in files]
 
-
-DataDir = '../Data/MC'
-subdirs = os.listdir(DataDir+'/low')
-subdirs = [subdir for subdir in subdirs if subdir.startswith('b')]
-subdirs.sort()
+# DataDir = '../Data/MC'
+# subdirs = os.listdir(DataDir+'/low')
+# subdirs = [subdir for subdir in subdirs if subdir.startswith('b')]
+# subdirs.sort()
 # print(subdirs)
-files = []
-for subdir in subdirs:
-    subfiles = os.listdir(DataDir+'/'+subdir+'/PCGF')
-    subfiels = [f for f in files if f.endswith('.root')]
-    # subfiles = subfiles.sort()
-    files += [DataDir+'/'+subdir+'/PCGF/'+s for s in subfiles]
-files.sort()
-files = [f for f in files if f.endswith('.root')]   
-# for file in files:
+# files = []
+# for subdir in subdirs:
+#     subfiles = os.listdir(DataDir+'/'+subdir+'/PCGF')
+#     subfiels = [f for f in files if f.endswith('.root')]
+#     # subfiles = subfiles.sort()
+#     files += [DataDir+'/'+subdir+'/PCGF/'+s for s in subfiles]
+# files.sort()
+# files = [f for f in files if f.endswith('.root')]   
+# # for file in files:
 #     print(file)
 # exit()
+
+
+
 
 
 DetGeom = GetDetectorGeometry('../Data/Selected_Events_Extended.root')
 
 ##########################################################################################
+# # Try to plot the value of Rp vs Direct Cherenkov light Fraction
+# All_Rp = []
+# All_CherenkovFraction = []
+# EvNumber = 0
+# for file in files:
+#     for Event in RecEventProvider(file):
+#         EvNumber += 1
+#         if EvNumber % 100 == 0: print(f'Event: {EvNumber}')
+#         # print('Event ID:',Event.GetEventId())
+#         FdEvent = Event.GetFDEvents()[-1]
+#         All_Rp               .append(FdEvent.GetGenGeometry().GetRp())
+#         eyeEvent = Event.GetEye(6)
+#         for iTel in range(7,10):# Check which HeCo Telescope is in the event
+#             if eyeEvent.MirrorIsInEvent(iTel):
+#                 telEvent = eyeEvent.GetTelescopeData(iTel)
+#                 break
+#         if telEvent is None:continue
+        
+#         All_CherenkovFraction.append(telEvent.GetGenApertureLight().GetCherenkovFraction())
 
-# Get the data into numpy arrays and pickle so that i can use jypyter notebook
-from Convert_GEOM import ConvertGeometry
-filename = DataDir+'/low/b01/PCGF/ADST.PCGF.300000000.root'
-EvNumber = 0
 
-ALL_HE_GEOM = []
-ALL_HC_GEOM = []
-ALL_GE_GEOM = []
 
+#         if EvNumber > 10000: break
+#     if EvNumber > 10000: break
+
+# All_Rp = np.array(All_Rp)
+# All_CherenkovFraction = np.array(All_CherenkovFraction)
+
+# plt.figure(figsize=(10,10))
+# plt.hist2d(All_Rp,All_CherenkovFraction,bins=100)
+# plt.xlabel('Rp')
+# plt.ylabel('Cherenkov Fraction')
+# plt.colorbar()
+# plt.grid()
+# plt.savefig('Rp_vs_CherenkovFraction.png')
+
+##########################################################################################
+# Working on the alignment of the geometry
+def compute_vector(phi,theta,BackwallAngle):
+    phi_rad = (phi+BackwallAngle)/180*np.pi
+    theta_rad = theta/180*np.pi
+
+    x = np.sin(theta_rad)*np.cos(phi_rad)
+    y = np.sin(theta_rad)*np.sin(phi_rad)
+    z = np.cos(theta_rad)
+    return np.array([x,y,z])
+
+def space_angle(v1, v2):
+    """
+    Computes the space angle between two 3-vectors.
+    
+    Parameters:
+        v1 (array-like): First 3-vector.
+        v2 (array-like): Second 3-vector.
+        
+    Returns:
+        float: Space angle in degrees.
+    """
+    v1 = np.array(v1)
+    v2 = np.array(v2)
+    
+    dot_product = np.dot(v1, v2)
+    norm_v1 = np.linalg.norm(v1)
+    norm_v2 = np.linalg.norm(v2)
+    
+    cos_theta = np.clip(dot_product / (norm_v1 * norm_v2), -1.0, 1.0)
+    theta_rad = np.arccos(cos_theta)
+    
+    return np.degrees(theta_rad)
+
+def minimum_distance_line_point(p, v, q):
+    """Compute the minimum distance between a 3D line and a point.
+    
+    Parameters:
+    p (array-like): A point on the line (3D).               p = Core
+    v (array-like): Direction vector of the line (3D).      v = Axis
+    q (array-like): The point in space (3D).                q = HEPos
+    
+    Returns:
+    float: Minimum distance.
+    """
+    p, v, q = np.array(p), np.array(v), np.array(q)
+    w = q - p
+    cross_prod = np.cross(v, w)
+    distance = np.linalg.norm(cross_prod) / np.linalg.norm(v)
+    return distance
+
+
+# Generate Available filenames
+HE_BackwallAngle = 273.0
+HE_OpticalAxisPhi   = {1:44.45,2:89.87,3:132.83}
+HE_OpticalAxisTheta = {1:44.45,2:45.58,3:44.85}
+HEPos = np.array([-31741.12427975,  15095.57420328,    210.54774754])
+
+HE_OpticalAxisVec = {i: compute_vector(HE_OpticalAxisPhi[i],HE_OpticalAxisTheta[i],HE_BackwallAngle) for i in range(1,4)}  
+
+All_SpaceAngles        = []
+All_CherenkovFractions = []
+All_Rps                = []
+All_Distances          = []
+
+
+EvNumber = -0
 for file in files:
     for Event in RecEventProvider(file):
         EvNumber += 1
-        # if EvNumber != SelectEvent: continue
         if EvNumber % 100 == 0: print(f'Event: {EvNumber}')
-        EvGenShower = Event.GetGenShower()
-        FdEvents    = Event.GetFDEvents()
-        HeCo_FdEvent = FdEvents[-1]
-        Heat_FdEvent = FdEvents[-2]
-        if HeCo_FdEvent.GetEyeId() != 6: continue
-        if Heat_FdEvent.GetEyeId() != 5: continue
+
+        # Get the axis and core in Site Coordinates
+        Core = np.array(Event.GetGenShower().GetCoreSiteCS())
+        Axis = np.array(Event.GetGenShower().GetAxisSiteCS())
+        
+        FdEvent = Event.GetFDEvents()[-1]
+        All_Rps.append(FdEvent.GetGenGeometry().GetRp())
+        
+        # Get Cherenkov Fraction
+        eyeEvent = Event.GetEye(6)
+        for iTel in range(7,10):# Check which HeCo Telescope is in the event
+            if eyeEvent.MirrorIsInEvent(iTel):
+                telEvent = eyeEvent.GetTelescopeData(iTel)
+                break
+        if telEvent is None:continue
+        All_CherenkovFractions.append(telEvent.GetGenApertureLight().GetCherenkovFraction())
+
+        # Get the Space angle between the Axis and Heco Telescope Optical Axis
+
+        this_SpaceAngle = space_angle(Axis,HE_OpticalAxisVec[iTel-6])
+        All_SpaceAngles.append(this_SpaceAngle)
+        
+        # Get the distance between the core and the HEPos
+        this_distance = minimum_distance_line_point(Core,Axis,HEPos)
+        All_Distances.append(this_distance)
+        
+        
+        
+        if EvNumber > 10000: break
+    if EvNumber > 10000: break
+        
 
 
 
-        Core = np.array(EvGenShower.GetCoreSiteCS())
-        Axis = np.array(EvGenShower.GetAxisCoreCS())
-        ALL_GE_GEOM.append({'Core':Core,'Axis':Axis})
+All_CherenkovFractions = np.array(All_CherenkovFractions)
+All_SpaceAngles        = np.array(All_SpaceAngles)
+All_Rps                = np.array(All_Rps)
+All_Distances          = np.array(All_Distances)
 
-        HeatSDP_Theta = Heat_FdEvent.GetGenGeometry().GetSDPTheta()
-        HeatSDP_Phi   = Heat_FdEvent.GetGenGeometry().GetSDPPhi()
-        HeatChi0      = Heat_FdEvent.GetGenGeometry().GetChi0()
-        HeatRp        = Heat_FdEvent.GetGenGeometry().GetRp()
+# Normalise the angles and distances to be between 0 and 1 (ie. /180 and /5000)
+All_SpaceAngles        = All_SpaceAngles/180
+All_Distances          = All_Distances/5000
 
-        HE_GEOM = {'SDP_Theta':HeatSDP_Theta,'SDP_Phi':HeatSDP_Phi,'Chi0':HeatChi0,'Rp':HeatRp}
-        ALL_HE_GEOM.append(HE_GEOM)
+All_Scores = All_SpaceAngles*All_Distances
 
-        HC_SDP_Theta = HeCo_FdEvent.GetGenGeometry().GetSDPTheta()
-        HC_SDP_Phi   = HeCo_FdEvent.GetGenGeometry().GetSDPPhi()
-        HC_Chi0      = HeCo_FdEvent.GetGenGeometry().GetChi0()
-        HC_Rp        = HeCo_FdEvent.GetGenGeometry().GetRp()
+# Plot a 2 Histogram
+plt.figure(figsize=(10,10))
+sns.jointplot(x=All_Scores, y=All_CherenkovFractions, kind='hist', cmap='Blues', color='blue', marginal_kws=dict(bins=100, fill=True),joint_kws=dict(bins=100, fill=True))
+plt.xlabel('Space Angle')
+plt.ylabel('Cherenkov Fraction')
+plt.savefig('SpaceAngle_vs_CherenkovFraction.png')
 
-        HC_GEOM = {'SDP_Theta':HC_SDP_Theta,'SDP_Phi':HC_SDP_Phi,'Chi0':HC_Chi0,'Rp':HC_Rp}
-        ALL_HC_GEOM.append(HC_GEOM)
+        
+
+
+##########################################################################################
+
+# # Get the data into numpy arrays and pickle so that i can use jypyter notebook
+# from Convert_GEOM import ConvertGeometry
+# filename = DataDir+'/low/b01/PCGF/ADST.PCGF.300000000.root'
+# EvNumber = 0
+
+# ALL_HE_GEOM = []
+# ALL_HC_GEOM = []
+# ALL_GE_GEOM = []
+
+# for file in files:
+#     for Event in RecEventProvider(file):
+#         EvNumber += 1
+#         # if EvNumber != SelectEvent: continue
+#         if EvNumber % 100 == 0: print(f'Event: {EvNumber}')
+#         EvGenShower = Event.GetGenShower()
+#         FdEvents    = Event.GetFDEvents()
+#         HeCo_FdEvent = FdEvents[-1]
+#         Heat_FdEvent = FdEvents[-2]
+#         if HeCo_FdEvent.GetEyeId() != 6: continue
+#         if Heat_FdEvent.GetEyeId() != 5: continue
+
+
+
+#         Core = np.array(EvGenShower.GetCoreSiteCS())
+#         Axis = np.array(EvGenShower.GetAxisCoreCS())
+#         ALL_GE_GEOM.append({'Core':Core,'Axis':Axis})
+
+#         HeatSDP_Theta = Heat_FdEvent.GetGenGeometry().GetSDPTheta()
+#         HeatSDP_Phi   = Heat_FdEvent.GetGenGeometry().GetSDPPhi()
+#         HeatChi0      = Heat_FdEvent.GetGenGeometry().GetChi0()
+#         HeatRp        = Heat_FdEvent.GetGenGeometry().GetRp()
+
+#         HE_GEOM = {'SDP_Theta':HeatSDP_Theta,'SDP_Phi':HeatSDP_Phi,'Chi0':HeatChi0,'Rp':HeatRp}
+#         ALL_HE_GEOM.append(HE_GEOM)
+
+#         HC_SDP_Theta = HeCo_FdEvent.GetGenGeometry().GetSDPTheta()
+#         HC_SDP_Phi   = HeCo_FdEvent.GetGenGeometry().GetSDPPhi()
+#         HC_Chi0      = HeCo_FdEvent.GetGenGeometry().GetChi0()
+#         HC_Rp        = HeCo_FdEvent.GetGenGeometry().GetRp()
+
+#         HC_GEOM = {'SDP_Theta':HC_SDP_Theta,'SDP_Phi':HC_SDP_Phi,'Chi0':HC_Chi0,'Rp':HC_Rp}
+#         ALL_HC_GEOM.append(HC_GEOM)
 
 
 
         
 
-        if EvNumber > 10000: break
-    if EvNumber > 10000: break
+#         if EvNumber > 10000: break
+#     if EvNumber > 10000: break
 
-with open('All_GE_GEOM.pkl','wb') as f:
-    pickle.dump(ALL_GE_GEOM,f)
-with open('All_HE_GEOM.pkl','wb') as f:
-    pickle.dump(ALL_HE_GEOM,f)
-with open('All_HC_GEOM.pkl','wb') as f:
-    pickle.dump(ALL_HC_GEOM,f)
+# with open('All_GE_GEOM.pkl','wb') as f:
+#     pickle.dump(ALL_GE_GEOM,f)
+# with open('All_HE_GEOM.pkl','wb') as f:
+#     pickle.dump(ALL_HE_GEOM,f)
+# with open('All_HC_GEOM.pkl','wb') as f:
+#     pickle.dump(ALL_HC_GEOM,f)
 
 ##########################################################################################
 # # Testing the geoemtry conversion function by getting core and axis instead of geometry values
