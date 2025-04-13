@@ -84,126 +84,126 @@ DetGeom = GetDetectorGeometry('../Data/Selected_Events_Extended.root')
 
 ##########################################################################################
 # Working on the alignment of the geometry
-def compute_vector(phi,theta,BackwallAngle):
-    phi_rad = (phi+BackwallAngle)/180*np.pi
-    theta_rad = theta/180*np.pi
+# def compute_vector(phi,theta,BackwallAngle):
+#     phi_rad = (phi+BackwallAngle)/180*np.pi
+#     theta_rad = theta/180*np.pi
 
-    x = np.sin(theta_rad)*np.cos(phi_rad)
-    y = np.sin(theta_rad)*np.sin(phi_rad)
-    z = np.cos(theta_rad)
-    return np.array([x,y,z])
+#     x = np.sin(theta_rad)*np.cos(phi_rad)
+#     y = np.sin(theta_rad)*np.sin(phi_rad)
+#     z = np.cos(theta_rad)
+#     return np.array([x,y,z])
 
-def space_angle(v1, v2):
-    """
-    Computes the space angle between two 3-vectors.
+# def space_angle(v1, v2):
+#     """
+#     Computes the space angle between two 3-vectors.
     
-    Parameters:
-        v1 (array-like): First 3-vector.
-        v2 (array-like): Second 3-vector.
+#     Parameters:
+#         v1 (array-like): First 3-vector.
+#         v2 (array-like): Second 3-vector.
         
-    Returns:
-        float: Space angle in degrees.
-    """
-    v1 = np.array(v1)
-    v2 = np.array(v2)
+#     Returns:
+#         float: Space angle in degrees.
+#     """
+#     v1 = np.array(v1)
+#     v2 = np.array(v2)
     
-    dot_product = np.dot(v1, v2)
-    norm_v1 = np.linalg.norm(v1)
-    norm_v2 = np.linalg.norm(v2)
+#     dot_product = np.dot(v1, v2)
+#     norm_v1 = np.linalg.norm(v1)
+#     norm_v2 = np.linalg.norm(v2)
     
-    cos_theta = np.clip(dot_product / (norm_v1 * norm_v2), -1.0, 1.0)
-    theta_rad = np.arccos(cos_theta)
+#     cos_theta = np.clip(dot_product / (norm_v1 * norm_v2), -1.0, 1.0)
+#     theta_rad = np.arccos(cos_theta)
     
-    return np.degrees(theta_rad)
+#     return np.degrees(theta_rad)
 
-def minimum_distance_line_point(p, v, q):
-    """Compute the minimum distance between a 3D line and a point.
+# def minimum_distance_line_point(p, v, q):
+#     """Compute the minimum distance between a 3D line and a point.
     
-    Parameters:
-    p (array-like): A point on the line (3D).               p = Core
-    v (array-like): Direction vector of the line (3D).      v = Axis
-    q (array-like): The point in space (3D).                q = HEPos
+#     Parameters:
+#     p (array-like): A point on the line (3D).               p = Core
+#     v (array-like): Direction vector of the line (3D).      v = Axis
+#     q (array-like): The point in space (3D).                q = HEPos
     
-    Returns:
-    float: Minimum distance.
-    """
-    p, v, q = np.array(p), np.array(v), np.array(q)
-    w = q - p
-    cross_prod = np.cross(v, w)
-    distance = np.linalg.norm(cross_prod) / np.linalg.norm(v)
-    return distance
+#     Returns:
+#     float: Minimum distance.
+#     """
+#     p, v, q = np.array(p), np.array(v), np.array(q)
+#     w = q - p
+#     cross_prod = np.cross(v, w)
+#     distance = np.linalg.norm(cross_prod) / np.linalg.norm(v)
+#     return distance
 
 
-# Generate Available filenames
-HE_BackwallAngle = 273.0
-HE_OpticalAxisPhi   = {1:44.45,2:89.87,3:132.83}
-HE_OpticalAxisTheta = {1:44.45,2:45.58,3:44.85}
-HEPos = np.array([-31741.12427975,  15095.57420328,    210.54774754])
+# # Generate Available filenames
+# HE_BackwallAngle = 273.0
+# HE_OpticalAxisPhi   = {1:44.45,2:89.87,3:132.83}
+# HE_OpticalAxisTheta = {1:44.45,2:45.58,3:44.85}
+# HEPos = np.array([-31741.12427975,  15095.57420328,    210.54774754])
 
-HE_OpticalAxisVec = {i: compute_vector(HE_OpticalAxisPhi[i],HE_OpticalAxisTheta[i],HE_BackwallAngle) for i in range(1,4)}  
+# HE_OpticalAxisVec = {i: compute_vector(HE_OpticalAxisPhi[i],HE_OpticalAxisTheta[i],HE_BackwallAngle) for i in range(1,4)}  
 
-All_SpaceAngles        = []
-All_CherenkovFractions = []
-All_Rps                = []
-All_Distances          = []
+# All_SpaceAngles        = []
+# All_CherenkovFractions = []
+# All_Rps                = []
+# All_Distances          = []
 
 
-EvNumber = -0
-for file in files:
-    for Event in RecEventProvider(file):
-        EvNumber += 1
-        if EvNumber % 100 == 0: print(f'Event: {EvNumber}')
+# EvNumber = -0
+# for file in files:
+#     for Event in RecEventProvider(file):
+#         EvNumber += 1
+#         if EvNumber % 100 == 0: print(f'Event: {EvNumber}')
 
-        # Get the axis and core in Site Coordinates
-        Core = np.array(Event.GetGenShower().GetCoreSiteCS())
-        Axis = np.array(Event.GetGenShower().GetAxisSiteCS())
+#         # Get the axis and core in Site Coordinates
+#         Core = np.array(Event.GetGenShower().GetCoreSiteCS())
+#         Axis = np.array(Event.GetGenShower().GetAxisSiteCS())
         
-        FdEvent = Event.GetFDEvents()[-1]
-        All_Rps.append(FdEvent.GetGenGeometry().GetRp())
+#         FdEvent = Event.GetFDEvents()[-1]
+#         All_Rps.append(FdEvent.GetGenGeometry().GetRp())
         
-        # Get Cherenkov Fraction
-        eyeEvent = Event.GetEye(6)
-        for iTel in range(7,10):# Check which HeCo Telescope is in the event
-            if eyeEvent.MirrorIsInEvent(iTel):
-                telEvent = eyeEvent.GetTelescopeData(iTel)
-                break
-        if telEvent is None:continue
-        All_CherenkovFractions.append(telEvent.GetGenApertureLight().GetCherenkovFraction())
+#         # Get Cherenkov Fraction
+#         eyeEvent = Event.GetEye(6)
+#         for iTel in range(7,10):# Check which HeCo Telescope is in the event
+#             if eyeEvent.MirrorIsInEvent(iTel):
+#                 telEvent = eyeEvent.GetTelescopeData(iTel)
+#                 break
+#         if telEvent is None:continue
+#         All_CherenkovFractions.append(telEvent.GetGenApertureLight().GetCherenkovFraction())
 
-        # Get the Space angle between the Axis and Heco Telescope Optical Axis
+#         # Get the Space angle between the Axis and Heco Telescope Optical Axis
 
-        this_SpaceAngle = space_angle(Axis,HE_OpticalAxisVec[iTel-6])
-        All_SpaceAngles.append(this_SpaceAngle)
+#         this_SpaceAngle = space_angle(Axis,HE_OpticalAxisVec[iTel-6])
+#         All_SpaceAngles.append(this_SpaceAngle)
         
-        # Get the distance between the core and the HEPos
-        this_distance = minimum_distance_line_point(Core,Axis,HEPos)
-        All_Distances.append(this_distance)
+#         # Get the distance between the core and the HEPos
+#         this_distance = minimum_distance_line_point(Core,Axis,HEPos)
+#         All_Distances.append(this_distance)
         
         
         
-        if EvNumber > 10000: break
-    if EvNumber > 10000: break
+#         if EvNumber > 10000: break
+#     if EvNumber > 10000: break
         
 
 
 
-All_CherenkovFractions = np.array(All_CherenkovFractions)
-All_SpaceAngles        = np.array(All_SpaceAngles)
-All_Rps                = np.array(All_Rps)
-All_Distances          = np.array(All_Distances)
+# All_CherenkovFractions = np.array(All_CherenkovFractions)
+# All_SpaceAngles        = np.array(All_SpaceAngles)
+# All_Rps                = np.array(All_Rps)
+# All_Distances          = np.array(All_Distances)
 
-# Normalise the angles and distances to be between 0 and 1 (ie. /180 and /5000)
-All_SpaceAngles        = All_SpaceAngles/180
-All_Distances          = All_Distances/5000
+# # Normalise the angles and distances to be between 0 and 1 (ie. /180 and /5000)
+# All_SpaceAngles        = All_SpaceAngles/180
+# All_Distances          = All_Distances/5000
 
-All_Scores = All_SpaceAngles*All_Distances
+# All_Scores = All_SpaceAngles*All_Distances
 
-# Plot a 2 Histogram
-plt.figure(figsize=(10,10))
-sns.jointplot(x=All_Scores, y=All_CherenkovFractions, kind='hist', cmap='Blues', color='blue', marginal_kws=dict(bins=100, fill=True),joint_kws=dict(bins=100, fill=True))
-plt.xlabel('Space Angle')
-plt.ylabel('Cherenkov Fraction')
-plt.savefig('SpaceAngle_vs_CherenkovFraction.png')
+# # Plot a 2 Histogram
+# plt.figure(figsize=(10,10))
+# sns.jointplot(x=All_Scores, y=All_CherenkovFractions, kind='hist', cmap='Blues', color='blue', marginal_kws=dict(bins=100, fill=True),joint_kws=dict(bins=100, fill=True))
+# plt.xlabel('Space Angle')
+# plt.ylabel('Cherenkov Fraction')
+# plt.savefig('SpaceAngle_vs_CherenkovFraction.png')
 
         
 
@@ -586,74 +586,75 @@ plt.savefig('SpaceAngle_vs_CherenkovFraction.png')
     
 ##########################################################################################
 
-# ShortRun=False
-# AllCherenkovFraction = []
-# AllXmaxAngle = []
-# AllMeanAngle = []
-# AllEventClass = []
+ShortRun=True
+AllCherenkovFraction = []
+AllXmaxAngle = []
+AllMeanAngle = []
+AllEventClass = []
 
 
-# evCounter = 0
-# for i, file in enumerate(files):
-#     if not file.endswith('.root'):continue
-#     FullPath = os.path.join(DataDir, file)
-#     for Event in RecEventProvider(FullPath):
-#         evCounter += 1
-#         print(f'Event: {evCounter}', end='\r')
-#         eyeEvent = Event.GetEye(6)
-#         telEvent = None
-#         for iTel in range(7,10):# Check which HeCo Telescope is in the event
-#             if eyeEvent.MirrorIsInEvent(iTel):
-#                 telEvent = eyeEvent.GetTelescopeData(iTel)
-#                 break
-#         if telEvent is None:continue
+evCounter = 0
+for i, file in enumerate(files):
+    if not file.endswith('.root'):continue
+    # FullPath = os.path.join(DataDir, file)
+    for Event in RecEventProvider(file):
+        evCounter += 1
+        print(f'Event: {evCounter}', end='\r')
+        eyeEvent = Event.GetEye(6)
+        telEvent = None
+        for iTel in range(7,10):# Check which HeCo Telescope is in the event
+            if eyeEvent.MirrorIsInEvent(iTel):
+                telEvent = eyeEvent.GetTelescopeData(iTel)
+                break
+        if telEvent is None:continue
 
-#         GenApLight = telEvent.GetGenApertureLight()
-#         AllCherenkovFraction.append(GenApLight.GetCherenkovFraction())
-#         AllXmaxAngle        .append(GenApLight.GetXmaxAngle()        )
-#         AllMeanAngle        .append(GenApLight.GetMeanAngle()        )
-#         AllEventClass       .append(eyeEvent.GetEventClass()          )
+        GenApLight = telEvent.GetGenApertureLight()
+        AllCherenkovFraction.append(GenApLight.GetCherenkovFraction())
+        AllXmaxAngle        .append(GenApLight.GetXmaxAngle()        )
+        AllMeanAngle        .append(GenApLight.GetMeanAngle()        )
+        AllEventClass       .append(eyeEvent.GetEventClass()          )
         
-#         if ShortRun and evCounter>500:break
-#     print('\n')
-#     if ShortRun and evCounter>500:break
+        if ShortRun and evCounter>1000:break
+    print('\n')
+    if ShortRun and evCounter>1000:break
 
-# AllCherenkovFraction = np.array(AllCherenkovFraction)
-# AllXmaxAngle         = np.array(AllXmaxAngle)/np.pi*180
-# AllMeanAngle         = np.array(AllMeanAngle)/np.pi*180
-# AllEventClass        = np.array(AllEventClass)
+AllCherenkovFraction = np.array(AllCherenkovFraction)
+AllXmaxAngle         = np.array(AllXmaxAngle)/np.pi*180
+AllMeanAngle         = np.array(AllMeanAngle)/np.pi*180
+AllEventClass        = np.array(AllEventClass)
 
-# # Define shower candidate classes
-# Unique_Shower_Candidates = ["'Close Shower'", "'Horizontal Shower'","'Shower Candidate'"]
+# Define shower candidate classes
+Unique_Shower_Candidates = ["'Close Shower'", "'Horizontal Shower'","'Shower Candidate'"]
 
-# # Identify unique event classes and sort them with shower candidates first
-# unique_classes = np.unique(AllEventClass)
-# unique_classes = sorted(unique_classes, key=lambda x: x not in Unique_Shower_Candidates)
+# Identify unique event classes and sort them with shower candidates first
+unique_classes = np.unique(AllEventClass)
+unique_classes = sorted(unique_classes, key=lambda x: x not in Unique_Shower_Candidates)
 
-# # Assign colors
-# colors = plt.cm.Wistia(np.linspace(0, 1, len(unique_classes)))
-# # print(dir(plt.cm))
-# fig, axs = plt.subplots(1, 3, figsize=(15, 5))
+# Assign colors
+colors = plt.cm.Wistia(np.linspace(0, 1, len(unique_classes)))
+# print(dir(plt.cm))
+fig, axs = plt.subplots(1, 3, figsize=(15, 5))
 
-# # Plot stacked histograms with hatching
-# for ax, data, xlabel in zip(axs, [AllXmaxAngle, AllMeanAngle, AllCherenkovFraction], 
-#                             ['Xmax Angle', 'Mean Angle', 'Cherenkov Fraction']):
-#     hist_data = [data[AllEventClass == cls] for cls in unique_classes]
-#     bars = ax.hist(hist_data, bins=50, stacked=True, color=colors, label=unique_classes)
+# Plot stacked histograms with hatching
+for ax, data, xlabel in zip(axs, [AllXmaxAngle, AllMeanAngle, AllCherenkovFraction], 
+                            ['Xmax Angle', 'Mean Angle', 'Cherenkov Fraction']):
+    hist_data = [data[AllEventClass == cls] for cls in unique_classes]
+    bars = ax.hist(hist_data, bins=50, stacked=True, color=colors, label=unique_classes)
 
-#     # Apply hatching to shower candidates
-#     for rects, cls in zip(bars[2], unique_classes):  # bars[2] contains patches
-#         if cls in Unique_Shower_Candidates:
-#             for rect in rects:
-#                 rect.set_hatch('xx')
+    # Apply hatching to shower candidates
+    for rects, cls in zip(bars[2], unique_classes):  # bars[2] contains patches
+        if cls in Unique_Shower_Candidates:
+            for rect in rects:
+                rect.set_hatch('xx')
 
-#     ax.set_xlabel(xlabel)
-#     ax.set_ylabel('Count')
-#     ax.legend()
-#     ax.grid()
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel('Count')
+    ax.legend()
+    ax.grid()
 
-# plt.tight_layout()
-# plt.savefig('Stacked_Histograms.pdf')
+plt.tight_layout()
+plt.savefig('Stacked_Histograms_Test.png')
+plt.savefig('Stacked_Histograms_Test.pdf')
 
 ##########################################################################################
 
