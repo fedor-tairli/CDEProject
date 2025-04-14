@@ -105,8 +105,8 @@ int main (int argc, char **argv)
   
   // Things that will be in the EventLevelData
   EventLevelData << "EventID,Rec_Level,Event_Class,Primary"; // Event Meta Data
-  EventLevelData << "Gen_LogE,Gen_CosZenith,Gen_Xmax,Gen_dEdXmax,Gen_SDPPhi,Gen_SDPTheta,Gen_Chi0,Gen_Rp,Gen_T0,Gen_CoreEyeDist,"; // Gen Observables
-  EventLevelData << "Rec_LogE,Rec_CosZenith,Rec_Xmax,Rec_dEdXmax,Rec_SDPPhi,Rec_SDPTheta,Rec_Chi0,Rec_Rp,Rec_T0,Rec_CoreEyeDist,"; // Rec Observables
+  EventLevelData << "Gen_LogE,Gen_CosZenith,Gen_Xmax,Gen_dEdXmax,Gen_SDPPhi,Gen_SDPTheta,Gen_Chi0,Gen_Rp,Gen_T0,Gen_CoreEyeDist,Gen_CherenkovFraction"; // Gen Observables
+  EventLevelData << "Rec_LogE,Rec_CosZenith,Rec_Xmax,Rec_dEdXmax,Rec_SDPPhi,Rec_SDPTheta,Rec_Chi0,Rec_Rp,Rec_T0,Rec_CoreEyeDist,Rec_CherenkovFraction"; // Rec Observables
   EventLevelData << "Pixel_Start,Pixel_End"; // CSV Reading Information
   // Things that will be in the PixelLevelData
   // Pixel Data, Tracebins will be an array separated by not-commas
@@ -162,9 +162,11 @@ int main (int argc, char **argv)
           if (superverbose && verbose) {cout << "Got HE Event" << endl;}
         }
         if (eyeID == 6) {
-          HC_Event = *eye;
+          if (eye->GetMirrorsInEye() != 1) continue ; // only interersted in events with exactly one mirror. and that mirror has to be HEAT mirror
+          HC_Event = *eye;                            // That is guaranteed by the above check
           GotHC = true;
           if (superverbose && verbose) {cout << "Got HC Event" << endl;}
+          // Check that there is exactly one telescope present int this event
         }
       } // Computation i will do outside of the loop
       if (!GotHE || !GotHC) {
@@ -191,6 +193,7 @@ int main (int argc, char **argv)
       double Gen_Rp          = 0;
       double Gen_T0          = 0;
       double Gen_CoreEyeDist = 0;
+      double Gen_CherenkovFraction = 0;
 
       double Rec_LogE        = 0;
       double Rec_CosZenith   = 0;
@@ -202,6 +205,7 @@ int main (int argc, char **argv)
       double Rec_Rp          = 0;
       double Rec_T0          = 0;
       double Rec_CoreEyeDist = 0;
+      double Rec_CherenkovFraction = 0;
 
       unsigned int Pixel_Start = 0;
       unsigned int Pixel_End   = 0;
@@ -223,11 +227,32 @@ int main (int argc, char **argv)
       if (superverbose && verbose) {cout << "EventID: " << EventID << endl;}
       Rec_Level = HC_Event.GetRecLevel();
       Event_Class = EventClass_int(HE_Event.GetEventClass()); 
-      Primary = ShortPrimaryInt(HE_Event.GetGenShower().GetPrimary());
+      Primary = ShortPrimaryInt(theRecEvent->GetGenShower().GetPrimary());
 
 
-      //  Get Gen Data
+      { // Scope for the non Eye variables
+        // Event Objects
+        GenShower & genShower = theRecEvent->GetGenShower();
+        // Event Variables
+        Gen_LogE      = genShower.GetEnergy();
+        Gen_LogE      = TMath::Log10(Gen_LogE);
+        Gen_CosZenith = genShower.GetCosZenith();
+        Gen_Xmax      = genShower.GetXmaxInterpolated();
+        Gen_dEdXmax   = genShower.GetdEdXmaxInterpolated();
+      }        
+      { // Scope to get the HEAT Variables
+        FdGenGeometry & HE_GenGeometry = HE_Event.GetGenGeometry();
+        Gen_SDPPhi      = HE_GenGeometry.GetSDPPhi();
+        Gen_SDPTheta    = HE_GenGeometry.GetSDPTheta();
+        Gen_Chi0        = HE_GenGeometry.GetChi0();
+        Gen_Rp          = HE_GenGeometry.GetRp();
+        Gen_T0          = HE_GenGeometry.GetT0();
+        Gen_CoreEyeDist = HE_GenGeometry.GetCoreEyeDistance();
 
+        FdGenShower   & HE_GenShower   = HE_Event.GetGenShower();
+        Gen_CherenkovFraction = HE_GenShower.GetCherenkovFraction();
+
+      }
 
 
 
@@ -236,8 +261,11 @@ int main (int argc, char **argv)
 
 
 
+      // Here we might do some testing
+      { // Testing Scope
 
-     
+
+      }
     } // Event Loop
 
     if (verbose) {

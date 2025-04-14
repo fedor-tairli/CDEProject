@@ -29,6 +29,7 @@ Thumbs.db
 *.pkl
 *.pt
 *.root
+*.csv
 
 # Ignore Symlinks
 Data
