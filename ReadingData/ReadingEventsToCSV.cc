@@ -213,6 +213,18 @@ int main (int argc, char **argv)
 
       // Preallocate the variables for the Pixel Data
       // TODO : make this preallocation
+      unsigned int PixelID = 0;
+      unsigned int TelID   = 0;
+      unsigned int EyeID   = 0;
+      unsigned int Status  = 0;
+      double Charge = 0;
+      double Theta  = 0;
+      double Phi    = 0;
+      double TimeOffset = 0;
+      double PulseStart = 0;
+      double PulseCentroid = 0;
+      double PulseEnd = 0;
+      std::vector<double> TraceBins(2000,0.0); // This is a vector of doubles for GetTrace function.
 
       // -------------------------------------------------------------------
       // Here we collect the data
@@ -254,8 +266,34 @@ int main (int argc, char **argv)
 
       }
 
+      { // Scope for HECO (Rec) variables,
+        // Note : The Actual values for geometry dont matter (I think) so what we are going to do is:
+        //  Calculate :  Gen_HE_value - (Gen_HECO-Rec_HECO) values and that would make a homogenous with the HE Values. 
+        
+        FdGenGeometry & HECO_GenGeometry = HC_Event.GetGenGeometry();
+        FdRecGeometry & HECO_RecGeometry = HC_Event.GetFdRecGeometry();
+        // Values that requrie Geometry transformations
+        Rec_SDPPhi      = Gen_SDPPhi      - (HECO_GenGeometry.GetSDPPhi()          - HECO_RecGeometry.GetSDPPhi()  );
+        Rec_SDPTheta    = Gen_SDPTheta    - (HECO_GenGeometry.GetSDPTheta()        - HECO_RecGeometry.GetSDPTheta());
+        Rec_Chi0        = Gen_Chi0        - (HECO_GenGeometry.GetChi0()            - HECO_RecGeometry.GetChi0()    );
+        Rec_Rp          = Gen_Rp          - (HECO_GenGeometry.GetRp()              - HECO_RecGeometry.GetRp()      );
+        Rec_T0          = Gen_T0          - (HECO_GenGeometry.GetT0()              - HECO_RecGeometry.GetT0()      );
+        Rec_CoreEyeDist = Gen_CoreEyeDist - (HECO_GenGeometry.GetCoreEyeDistance() - HECO_RecGeometry.GetCoreEyeDistance());
+        // Values that are not affected by telescope geometry
+        
 
+        FdRecShwoer & HECO_RecShower = HC_Event.GetFdRecShower();
+        Rec_CherenkovFraction = HECO_RecShower.GetCherenkovFraction();
+        Rec_LogE              = TMath::Log10(HECO_RecShower.GetEnergy());
+        Rec_Xmax              = HECO_RecShower.GetXmax();
+        Rec_dEdXmax           = HECO_RecShower.GetdEdXmax();
+        // Rec_CosZenith i cannot be bothered to do this, and its probably never going to come up anyway.
 
+      }
+
+      
+      // Now we go through the pixels. 
+      
       // Here we write the data to the file
       
 
@@ -266,6 +304,8 @@ int main (int argc, char **argv)
 
 
       }
+
+
     } // Event Loop
 
     if (verbose) {
