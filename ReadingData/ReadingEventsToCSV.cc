@@ -89,9 +89,29 @@ main (int argc, char **argv)
   for (int i = 1; i < argc; i++) {
     string arg = argv[i];
     if (arg == "--verbose" || arg == "-v") {
-      verbose = true; // Enable verbose output
+        verbose = true; // Enable verbose output
+    } else if (arg.size() > 5 && arg.substr(arg.size() - 5) == ".root") {
+        filenames.push_back(arg); // Treat as a .root filename
+    } else if (arg.size() > 4 && arg.substr(arg.size() - 4) == ".txt") {
+        // Handle .txt file containing filenames
+        ifstream txtFile(arg);
+        if (!txtFile.is_open()) {
+            cerr << "Error: Could not open file " << arg << endl;
+            return 1;
+        }
+        string line;
+        while (getline(txtFile, line)) {
+            if (!line.empty()) {
+                if (line.size() > 5 && line.substr(line.size() - 5) == ".root") {
+                    filenames.push_back(line); // Add valid .root filename
+                } else {
+                    cerr << "Warning: Skipping invalid line in " << arg << ": " << line << endl;
+                }
+            }
+        }
+        txtFile.close();
     } else {
-      filenames.push_back(arg); // Treat as a filename
+        cerr << "Warning: Unrecognized file type for " << arg << ". Skipping." << endl;
     }
   }
 
