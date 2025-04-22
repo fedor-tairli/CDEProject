@@ -521,6 +521,7 @@ main (int argc, char **argv)
       cout << "Finished processing file: " << file << endl;
     }
     delete theRecEvent;
+    delete detGeometry;
   } // File Loop
 
   cout << "All files processed successfully, with total of " << NEvent << " events and " << NPixel << " pixels." << endl;
