@@ -514,11 +514,13 @@ main (int argc, char **argv)
 
       if (verbose) {cout << "      " << NEvent << " written to file." << endl;}
 
+      // Clean Up 
     } // Event Loop
 
     if (verbose) {
       cout << "Finished processing file: " << file << endl;
     }
+    delete theRecEvent;
   } // File Loop
 
   cout << "All files processed successfully, with total of " << NEvent << " events and " << NPixel << " pixels." << endl;

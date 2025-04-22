@@ -36,3 +36,7 @@ Data
 
 # Ignore Make-depend
 *Make-depend
+
+
+# Ignore these files
+*CountEvents*
