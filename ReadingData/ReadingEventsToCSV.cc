@@ -164,7 +164,7 @@ main (int argc, char **argv)
       if ((!dataFile.ReadEvent(iEvent)) == RecEventFile::eSuccess) continue; // Move to next file if no more events
       if (superverbose && verbose ) {cout << "Trying to read DataObjects for event " << NEvent+1 <<  endl;}
 
-      FDEvent HE_Event;
+      FDEvent HE_Event; 
       FDEvent HC_Event;
       bool GotHE = false;
       bool GotHC = false;
@@ -521,6 +521,7 @@ main (int argc, char **argv)
       cout << "Finished processing file: " << file << endl;
     }
     delete theRecEvent;
+    delete detGeometry;
   } // File Loop
 
   cout << "All files processed successfully, with total of " << NEvent << " events and " << NPixel << " pixels." << endl;
