@@ -474,6 +474,8 @@ class DatasetContainer:
         else:
             First  = self._event_data[:,self.Event_level_keys['EventID_1/2']].to(torch.int64)
             Second = self._event_data[:,self.Event_level_keys['EventID_2/2']].to(torch.int64)
+            # Chekc that Second is less than 10000, where it is equal to 10000, set to zero
+            Second[Second == 10000] = 0
             self.IDlist = (First*10000 + Second).tolist()
             return self.IDlist
         
@@ -481,3 +483,40 @@ class DatasetContainer:
         '''Iterate over the events'''
         for i in range(self.Number_of_events):
             yield self.get_event_by_index(i)
+
+
+    def LoadFromCSV_Preprocessed(self,DatasetName:str,NumberOfEvents:int,NumberOfPixels:int,\
+                          EventLevelKeys:dict,PixelLevelKeys:dict,EventPixelPosition:torch.tensor,\
+                          EventLevelData:torch.tensor,PixelLevelData:torch.tensor,Traces:torch.tensor=None,**kwargs):
+        
+        '''Load the dataset from CSV, kinda*
+        Kinda, because this is meant to accept a preporcessed data in form of the above tensors (not all are tensors)
+        Simply Run a couple of checks and assign the values to the dataset.
+        '''
+
+        assert DatasetName != None, "Dataset Name not assigned"
+        assert len(EventLevelKeys) == EventLevelData.shape[1], "Event Level Keys and Data do not match"
+        assert len(PixelLevelKeys) == PixelLevelData.shape[1], "Pixel Level Keys and Data do not match"
+        assert NumberOfEvents == EventLevelData.shape[0]     , "Number of Events and Data do not match"
+        assert NumberOfEvents == EventPixelPosition.shape[0], "Number of Events and Pixel Position do not match"
+        assert NumberOfPixels == PixelLevelData.shape[0]     , "Number of Pixels and Data do not match"
+        if not Traces is None: assert NumberOfPixels == Traces.shape[0], "Number of Pixels and Traces do not match"
+
+        # Assign the values to the dataset
+        self.Name = DatasetName
+        self.Number_of_events = NumberOfEvents
+        self.Number_of_pixels = NumberOfPixels
+        self.Event_level_keys = EventLevelKeys
+        self.Pixel_level_keys = PixelLevelKeys
+        if not Traces is None: self.HasTraces = True
+        self.All_keys_are_added = True
+
+        # Unnormalisation functions to be assigned separately
+
+        # Assign the data to the dataset
+        self._event_data           = EventLevelData
+        self._pixel_data           = PixelLevelData
+        if self.HasTraces: self._trace_data = Traces
+        self._event_pixel_position = EventPixelPosition
+
+        # Leave IDs List As None For now
