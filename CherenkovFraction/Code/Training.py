@@ -13,11 +13,16 @@ import torch
 import torch.optim as optim
 import torch.utils.data as data
 hostname = os.uname()
-if 'tycho'not in hostname:
-    print('Setting up paths for remote')
+if 'tycho' in hostname:
+    # Common folder is already in the path
+    pass
+elif 'tedtop' in hostname:
+    print('Setting up paths for tedtop')
+    sys.path.append('/home/fedor-tairli/work/CDEs/Dataset/')
+else: 
     sys.path.append('/remote/tychodata/ftairli/work/Projects/Common/')
 
-ModelPath = '/remote/tychodata/ftairli/work/Projects/LSTM_Reconstruction/Models/'
+ModelPath = os.path.abspath('../Models')
 sys.path.append(ModelPath)
 # Dataset modules
 from Dataset2 import DatasetContainer, ProcessingDatasetContainer
@@ -44,7 +49,7 @@ def LoadProcessingDataset(Path_To_Data,Path_To_Proc_Data,RunNames,RecalculateDat
     if RecalculateDataset:
         print('Recalculating Dataset')
         GlobalDataset = DatasetContainer()
-        GlobalDataset.Load(Path_To_Data+'/RawData',RunNames,LoadTraces=NeedTraces)
+        GlobalDataset.Load(Path_To_Data,RunNames,LoadTraces=NeedTraces)
         Dataset = ProcessingDatasetContainer()
         Dataset.set_Name(GlobalDataset.Name)
 
@@ -72,12 +77,12 @@ def LoadProcessingDataset(Path_To_Data,Path_To_Proc_Data,RunNames,RecalculateDat
 TestingThings = False
 if __name__ == '__main__' and TestingThings:
     # Reading the dataset    
-    Path_To_Data      = '/remote/tychodata/ftairli/data/Simulations__libraries__MCTask__Offline_v3r99p2a__IdealMC_CORSIKA__Hybrid_CORSIKA76400/SIB23c/DatasetFiles'
-    Path_To_Proc_Data = '/remote/tychodata/ftairli/work/Projects/LSTM_Reconstruction/Data/'
-    RunNames = ['Run010','Run030','Run080','Run090']
-    RecalculateDataset = False
+    Path_To_Data      = os.path.abspath('../../Data/Proccessed/')
+    Path_To_Proc_Data = os.path.abspath('../Data//')
+    RunNames = ['CDEsDataset']
+    RecalculateDataset = True
     NeedTraces = True
-    DatasetName = 'LSTM_SDP_Dataset'
+    DatasetName = 'CherenkovFreaction_Dataset'
     Dataset = LoadProcessingDataset(Path_To_Data,Path_To_Proc_Data,RunNames,RecalculateDataset = RecalculateDataset,NeedTraces = NeedTraces,OptionalName = DatasetName)
 
     for data in Dataset._Main:
@@ -93,11 +98,11 @@ if __name__ == '__main__' and not TestingThings:
     Use_Test_Set         = False
     Use_All_Sets         = True
     Dataset_RandomIter   = True
-    RecalculateDataset   = False
+    RecalculateDataset   = True
     NeedTraces           = True
     LoadModel            = False
     DoNotTrain           = False
-    DatasetName          = 'LSTM_Axis_Dataset' #No / or .pt JUST NAME, eg GraphStructure  Use None to save as default
+    DatasetName          = 'CherenkovFraction_Dataset' #No / or .pt JUST NAME, eg GraphStructure  Use None to save as default
 
 
     if DoNotTrain: assert RecalculateDataset, 'Recalculate Dataset must be True if DoNotTrain is True'
@@ -109,25 +114,19 @@ if __name__ == '__main__' and not TestingThings:
         torch.cuda.manual_seed_all(seed)
 
     # Save Paths
-    SavePath     = '/remote/tychodata/ftairli/work/Projects/LSTM_Reconstruction/Models/'
-    plotSavePath = '/remote/tychodata/ftairli/work/Projects/LSTM_Reconstruction/Results/TrainingPlots/'
-    LogPath      = '/remote/tychodata/ftairli/work/Projects/TrainingLogs/'
+    SavePath     = os.path.abspath('../Models/')
+    plotSavePath = os.path.abspath('../Results/TrainingPlots/')
+    LogPath      = os.path.abspath('../../TrainingLogs/')
 
     if plotSavePath != None:  # Purge the directory
         os.system(f'rm -r {plotSavePath}')
         os.system(f'mkdir {plotSavePath}')
 
     # Reading the dataset    
-    Path_To_Data      = '/remote/tychodata/ftairli/data/Simulations__libraries__MCTask__Offline_v3r99p2a__IdealMC_CORSIKA__Hybrid_CORSIKA76400/SIB23c/DatasetFiles'
-    Path_To_Proc_Data = '/remote/tychodata/ftairli/work/Projects/LSTM_Reconstruction/Data/'
+    Path_To_Data      = os.path.abspath('../../Data/Proccessed/')
+    Path_To_Proc_Data = os.path.abspath('../Data/')
     
-    if Use_Test_Set:
-        RunNames = 'Test'
-    else:
-        if Use_All_Sets:
-            RunNames = ['Run010','Run030','Run080','Run090']
-        else:
-            RunNames = 'Run010'
+    RunNames = ['CDEsDataset']
 
     if DoNotTrain: print('No Training will be done, Just Reading the Dataset')
     Dataset = LoadProcessingDataset(Path_To_Data,Path_To_Proc_Data,RunNames,RecalculateDataset = RecalculateDataset,NeedTraces = NeedTraces,OptionalName = DatasetName)
@@ -138,12 +137,12 @@ if __name__ == '__main__' and not TestingThings:
     if not DoNotTrain:
         # import model
         from TrainingModule import Train , Tracker
-        from Model_Axis_LSTM import Loss as Loss_function
-        from Model_Axis_LSTM import validate, metric
-        from Model_Axis_LSTM import Model_Axis_LSTM_JustX, Model_Axis_LSTM_JustY, Model_Axis_LSTM_JustZ, Model_Axis_LSTM_JustSDPPhi, Model_Axis_LSTM_JustCEDist
+        from Model_CherenkovFraction import Loss as Loss_function
+        from Model_CherenkovFraction import validate, metric
+        from Model_CherenkovFraction import Model_ChrenkovFraction
 
         # Models = [Model_XmaxE_Conv_3d_Distances_JustXmax, Model_XmaxE_Conv_3d_Distances_JustLogE] # Here for copilot to see
-        Models = [Model_Axis_LSTM_JustX, Model_Axis_LSTM_JustY, Model_Axis_LSTM_JustZ, Model_Axis_LSTM_JustSDPPhi, Model_Axis_LSTM_JustCEDist]
+        Models = [Model_ChrenkovFraction]
         
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         # device = 'cpu'
@@ -151,7 +150,7 @@ if __name__ == '__main__' and not TestingThings:
 
         # Model Parameters 
         Model_Parameters = {
-            'in_main_channels': (4,5,),
+            'in_main_channels': (1),
             'in_node_channels': 5   ,
             'in_edge_channels': 2   ,
             'in_aux_channels' : 2   ,
@@ -162,7 +161,7 @@ if __name__ == '__main__' and not TestingThings:
             'N_LSTM_layers'   : 5   ,
             'kernel_size'     : 10  ,
             'conv2d_init_type': 'normal',
-            'model_Dropout'   : 0.1 ,
+            'model_Dropout'   : 0.0 ,
         }
         
         Training_Parameters = {

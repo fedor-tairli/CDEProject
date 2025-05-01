@@ -27,21 +27,20 @@ def Clean_Data_DoNothing(Dataset):
     pass
 
 # Import the functions from the other files, this is just the selection of the used functions
-
+import CherenkovFraction_DataGen
 
 # Data Generation Functions
-Pass_Main     = Pass_Main_DoNothing
+Pass_Main     = CherenkovFraction_DataGen.Standard_Graph_Conv3d_Traces
 
-Pass_Aux      = Pass_Aux_DoNothing
+Pass_Aux      = CherenkovFraction_DataGen.Aux_Descriptors
 
-Pass_Truth    = Pass_Truth_DoNothing
+Pass_Truth    = CherenkovFraction_DataGen.Truth_CherenkovFraction
 
 Pass_Rec      = Pass_Rec_DoNothing
 
 Pass_Graph    = Pass_Graph_DoNothing
 
 Pass_MetaData = Pass_MetaData_DoNothing
-
 
 # Extra Cleaning, probably not needed
 Clean_Data = Clean_Data_DoNothing

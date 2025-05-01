@@ -44,6 +44,7 @@ class EventContainer:
         self._event_data = event_data
         self._pixel_data = pixel_data
         self._trace_data = trace_data
+        self.Number_of_pixels = pixel_data.shape[0]
 
     def add_event_value(self,key,value):
         '''Add a value to the event'''
@@ -122,6 +123,8 @@ class ProcessingDatasetContainer:
             self.Unnormalise_Truth  = None  # Will be the function which unnormalises the Truth/Rec/Pred data
             self.Truth_Keys         = ()    # Will be the names of the Truth Values
             self.Truth_Units        = ()    # Will be the units of the Truth Values once unnormalised
+            self.Aux_Keys           = ()    # Will be the names of the Auxillary Values
+            self.Aux_Units          = ()    # Will be the units of the Auxillary Values
 
             # Indeces Definitions                
             self._TrainIndeces = None       # Indeces for the training data
