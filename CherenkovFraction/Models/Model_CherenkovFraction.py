@@ -52,7 +52,7 @@ def validate(model,Dataset,Loss,device,BatchSize = 256):
     return Loss(Preds,Truths,keys=Dataset.Truth_Keys,ReturnTensor=False)
     
 
-def metric(model,Dataset,device,keys = ['ChrenkovFraction'],BatchSize = 256):
+def metric(model,Dataset,device,keys = ['CherenkovFraction'],BatchSize = 256):
     '''
     Takes model, Dataset, Loss Function, device, keys
     Dataset is defined as ProcessingDatasetContainer in the Dataset2.py
@@ -108,13 +108,12 @@ class Model_ChrenkovFraction(nn.Module):
     Try Regular pooling for now'''
 
 
-    def __init__(self, in_main_channels=1, out_channels=1, N_kernels = 32, N_dense_nodes=128, init_type = None,DropOut_rate = 0,dtype = torch.float32,**kwargs):
+    def __init__(self, in_main_channels=(1,), out_channels=1, N_kernels = 32, N_dense_nodes=128, init_type = None,DropOut_rate = 0,dtype = torch.float32,**kwargs):
         # Pretty much kwargs are not used here, but kept for compatibility and completeness
         self.kwargs = kwargs
         super(Model_ChrenkovFraction,self).__init__()
-        
         assert len(in_main_channels) == 1, 'Only have one main'
-        assert in_main_channels[0] == 1, 'Only have one main'
+        assert in_main_channels[0] == 1, 'Only have one channel'
         # Expects a set of graph data which will be transformed to 3D grid 
         # Main Shape will be (N,40,20,22) # Dont forget to unsquish to account for extra dimension of the channel
 

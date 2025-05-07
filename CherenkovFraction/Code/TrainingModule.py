@@ -168,7 +168,7 @@ def PlotOnEpoch(Dataset,Model,Epoch,plotSavePath,device):
 
         NVars = len(Dataset.Truth_Keys)
         fig, axs = plt.subplots(1, NVars, figsize=(10*NVars, 10))
-        
+        if NVars == 1: axs = [axs]
         for i in range(NVars):
             axs[i].scatter(ModelTruth[:, i].numpy(), ModelPred[:, i].numpy(), s=1)
             axs[i].plot([min(ModelTruth[:, i]), max(ModelTruth[:, i])], [min(ModelTruth[:, i]), max(ModelTruth[:, i])], 'r')
@@ -307,7 +307,7 @@ def Train(model,Dataset,optimiser,scheduler,Loss,Validation,Metric,Tracker,\
         val_losses  = Validation(model,Dataset,Loss,device)
         val_loss    = val_losses['Total'] # Needed for scheduler step below
         print('Calculating Val Metrics')
-        val_metrics = Metric(model,Dataset,device)
+        val_metrics = Metric(model,Dataset,device,keys=Dataset.Truth_Keys)
 
         if True: # Scheduler Step is done here
             if val_loss < Min_Val_Loss*(1-tolerance):

@@ -31,7 +31,7 @@ def Standard_Graph_Conv3d_Traces(Dataset,ProcessingDataset):
         PixID = Event.get_pixel_values('PixelID')
         PixStatus = Event.get_pixel_values('Status')
 
-        Xs,Ys = IndexToXY(PixID,return_tensor=True)
+        Xs,Ys = IndexToXY(PixID-(TelID-1)*440+1,return_tensor=True)
 
         # Traces normalised Here
         Traces = torch.log1p((Traces).clip(min=0))
@@ -84,9 +84,9 @@ def Truth_CherenkovFraction(Dataset,ProcessingDataset):
     else:
         ProcessingDataset._Truth = Gen_CherenkovFraction
         ProcessingDataset._Rec   = Rec_CherenkovFraction
-        ProcessingDataset._Unnormalise_Truth = Unnormalise_CherenkovFraction
-        ProcessingDataset.Truth_Keys = ('CherenkovFraction')
-        ProcessingDataset.Truth_Units = ('')
+        ProcessingDataset.Unnormalise_Truth = Unnormalise_CherenkovFraction
+        ProcessingDataset.Truth_Keys = ('CherenkovFraction',)
+        ProcessingDataset.Truth_Units = ('',)
 
         if ProcessingDataset._EventIds is None:
             ProcessingDataset._EventIds = IDsList

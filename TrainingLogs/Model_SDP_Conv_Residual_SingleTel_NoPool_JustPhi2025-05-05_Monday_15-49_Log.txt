@@ -1,0 +1,43 @@
+Log file for training of Model_SDP_Conv_Residual_SingleTel_NoPool_JustPhi 
+Start Time: 2025-05-05 15:25:57 
+End   Time: 2025-05-05 15:49:27 
+
+Training Parameters: 
+    LR : 1e-05 
+    epochs : 25 
+    BatchSize : 64 
+    accumulation_steps : 1 
+    epoch_done : 0 
+    batchBreak : 1e+99 
+    ValLossIncreasePatience : 5 
+    Optimiser : Adam 
+
+Model Parameters: 
+    in_main_channels : (1,) 
+    in_node_channels : 5 
+    in_edge_channels : 2 
+    in_aux_channels : 2 
+    N_kernels : 16 
+    N_heads : 16 
+    N_dense_nodes : 128 
+    N_LSTM_nodes : 64 
+    N_LSTM_layers : 5 
+    kernel_size : 10 
+    conv2d_init_type : normal 
+    model_Dropout : 0.2 
+
+Training Log: 
+    Training Exit Reason: Val Loss Increasing 
+
+    Final Losses: 
+        Total : 0.8395696441690049 
+        SDPTheta : 0.25738358334547584 
+        SDPPhi : 0.5821860609322439 
+    Final Validation Losses: 
+        Total : 0.8430311679840088 
+        SDPTheta : 0.25647178292274475 
+        SDPPhi : 0.5865593552589417 
+    Final Metrics: 
+        SDPTheta : 0.6408279538154602 
+        SDPPhi : 1.1920233964920044 
+

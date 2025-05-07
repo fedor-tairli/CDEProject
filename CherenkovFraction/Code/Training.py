@@ -77,7 +77,7 @@ def LoadProcessingDataset(Path_To_Data,Path_To_Proc_Data,RunNames,RecalculateDat
 TestingThings = False
 if __name__ == '__main__' and TestingThings:
     # Reading the dataset    
-    Path_To_Data      = os.path.abspath('../../Data/Proccessed/')
+    Path_To_Data      = os.path.abspath('../../Data/Processed/')
     Path_To_Proc_Data = os.path.abspath('../Data//')
     RunNames = ['CDEsDataset']
     RecalculateDataset = True
@@ -98,7 +98,7 @@ if __name__ == '__main__' and not TestingThings:
     Use_Test_Set         = False
     Use_All_Sets         = True
     Dataset_RandomIter   = True
-    RecalculateDataset   = True
+    RecalculateDataset   = False
     NeedTraces           = True
     LoadModel            = False
     DoNotTrain           = False
@@ -123,7 +123,7 @@ if __name__ == '__main__' and not TestingThings:
         os.system(f'mkdir {plotSavePath}')
 
     # Reading the dataset    
-    Path_To_Data      = os.path.abspath('../../Data/Proccessed/')
+    Path_To_Data      = os.path.abspath('../../Data/Processed/')
     Path_To_Proc_Data = os.path.abspath('../Data/')
     
     RunNames = ['CDEsDataset']
@@ -150,7 +150,7 @@ if __name__ == '__main__' and not TestingThings:
 
         # Model Parameters 
         Model_Parameters = {
-            'in_main_channels': (1),
+            'in_main_channels': (1,),
             'in_node_channels': 5   ,
             'in_edge_channels': 2   ,
             'in_aux_channels' : 2   ,

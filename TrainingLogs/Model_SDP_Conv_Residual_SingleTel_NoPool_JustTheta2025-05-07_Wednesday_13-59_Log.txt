@@ -1,0 +1,43 @@
+Log file for training of Model_SDP_Conv_Residual_SingleTel_NoPool_JustTheta 
+Start Time: 2025-05-07 13:22:49 
+End   Time: 2025-05-07 13:59:42 
+
+Training Parameters: 
+    LR : 1e-05 
+    epochs : 25 
+    BatchSize : 64 
+    accumulation_steps : 1 
+    epoch_done : 0 
+    batchBreak : 1e+99 
+    ValLossIncreasePatience : 5 
+    Optimiser : Adam 
+
+Model Parameters: 
+    in_main_channels : (2,) 
+    in_node_channels : 5 
+    in_edge_channels : 2 
+    in_aux_channels : 2 
+    N_kernels : 16 
+    N_heads : 16 
+    N_dense_nodes : 128 
+    N_LSTM_nodes : 64 
+    N_LSTM_layers : 5 
+    kernel_size : 10 
+    conv2d_init_type : normal 
+    model_Dropout : 0.2 
+
+Training Log: 
+    Training Exit Reason: Reached Final Epoch 
+
+    Final Losses: 
+        Total : 0.8418989732484641 
+        SDPTheta : 0.24916522924929627 
+        SDPPhi : 0.5927337441260017 
+    Final Validation Losses: 
+        Total : 0.843970000743866 
+        SDPTheta : 0.24865971505641937 
+        SDPPhi : 0.5953102707862854 
+    Final Metrics: 
+        SDPTheta : 0.625037670135498 
+        SDPPhi : 1.2116607427597046 
+
