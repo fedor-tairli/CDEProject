@@ -1,0 +1,28 @@
+figure.figsize  : 12 , 12
+figure.titlesize: 0
+# Various font sizes
+font.size : 24
+ytick.labelsize : 24
+xtick.labelsize : 24
+axes.labelsize : 25
+
+# Makes title Invisible
+axes.titlesize : 1
+axes.titlecolor: white
+
+# Grid Settings
+axes.grid : True
+grid.alpha     : 0.5
+grid.linewidth : 2
+
+# Legend Settings
+legend.shadow      : False
+legend.loc         : upper right
+legend.frameon     : True
+legend.markerscale : 2
+
+# Line Formatting
+lines.linewidth : 3
+patch.linewidth : 3
+lines.marker    : None
+markers.fillstyle : full
