@@ -98,11 +98,11 @@ if __name__ == '__main__' and not TestingThings:
     Use_Test_Set         = False
     Use_All_Sets         = True
     Dataset_RandomIter   = True
-    RecalculateDataset   = False
+    RecalculateDataset   = True
     NeedTraces           = True
     LoadModel            = False
     DoNotTrain           = False
-    DatasetName          = 'SDP_Dataset' #No / or .pt JUST NAME, eg GraphStructure  Use None to save as default
+    DatasetName          = 'SDP_Conv3d_Dataset' #No / or .pt JUST NAME, eg GraphStructure  Use None to save as default
 
 
     if DoNotTrain: assert RecalculateDataset, 'Recalculate Dataset must be True if DoNotTrain is True'
@@ -144,10 +144,13 @@ if __name__ == '__main__' and not TestingThings:
         from TrainingModule import Train , Tracker
         from Model_SDP import Loss as Loss_function
         from Model_SDP import validate, metric
-        from Model_SDP import Model_SDP_Conv_Residual_SingleTel_NoPool_JustTheta , Model_SDP_Conv_Residual_SingleTel_NoPool_JustPhi
+        from Model_SDP import Model_SDP_Conv3d_JustTheta, Model_SDP_Conv3d_JustPhi
 
-        # Models = [Model_XmaxE_Conv_3d_Distances_JustXmax, Model_XmaxE_Conv_3d_Distances_JustLogE] # Here for copilot to see
-        Models = [Model_SDP_Conv_Residual_SingleTel_NoPool_JustTheta, Model_SDP_Conv_Residual_SingleTel_NoPool_JustPhi]
+        
+        Models = [
+            Model_SDP_Conv3d_JustTheta,
+            Model_SDP_Conv3d_JustPhi  ,
+        ]
         
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         # device = 'cpu'
@@ -155,13 +158,13 @@ if __name__ == '__main__' and not TestingThings:
 
         # Model Parameters 
         Model_Parameters = {
-            'in_main_channels': (2,),
+            'in_main_channels': (1,),
             'in_node_channels': 5   ,
             'in_edge_channels': 2   ,
-            'in_aux_channels' : 2   ,
+            'in_aux_channels' : 0   ,
             'N_kernels'       : 16  ,
             'N_heads'         : 16  ,
-            'N_dense_nodes'   : 128 ,
+            'N_dense_nodes'   : 64 ,
             'N_LSTM_nodes'    : 64  ,
             'N_LSTM_layers'   : 5   ,
             'kernel_size'     : 10  ,
@@ -170,8 +173,8 @@ if __name__ == '__main__' and not TestingThings:
         }
         
         Training_Parameters = {
-            'LR': 0.00001,
-            'epochs': 25,
+            'LR': 0.0001,
+            'epochs': 5,
             'BatchSize': 64,
             'accumulation_steps': 1,
             'epoch_done': 0,

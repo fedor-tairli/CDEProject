@@ -30,7 +30,7 @@ def Clean_Data_DoNothing(Dataset):
 import SDP_Conv_DataGen
 
 # Data Generation Functions
-Pass_Main     = SDP_Conv_DataGen.Main_Conv2d_Grid_Charge_and_Time
+Pass_Main     = SDP_Conv_DataGen.Standard_Graph_Conv3d_Traces
 
 Pass_Aux      = SDP_Conv_DataGen.Aux_Descriptors
 
