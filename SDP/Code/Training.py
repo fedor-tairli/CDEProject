@@ -98,7 +98,7 @@ if __name__ == '__main__' and not TestingThings:
     Use_Test_Set         = False
     Use_All_Sets         = True
     Dataset_RandomIter   = True
-    RecalculateDataset   = True
+    RecalculateDataset   = False
     NeedTraces           = True
     LoadModel            = False
     DoNotTrain           = False
@@ -164,7 +164,7 @@ if __name__ == '__main__' and not TestingThings:
             'in_aux_channels' : 0   ,
             'N_kernels'       : 16  ,
             'N_heads'         : 16  ,
-            'N_dense_nodes'   : 64 ,
+            'N_dense_nodes'   : 64  ,
             'N_LSTM_nodes'    : 64  ,
             'N_LSTM_layers'   : 5   ,
             'kernel_size'     : 10  ,

@@ -8,9 +8,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 # from time import time
-from   torch_geometric.nn import GCNConv, TAGConv,GATv2Conv
-from   torch_geometric.nn import global_mean_pool, global_max_pool, GlobalAttention
-from   torch_geometric.utils import add_self_loops
+# from   torch_geometric.nn import GCNConv, TAGConv,GATv2Conv
+# from   torch_geometric.nn import global_mean_pool, global_max_pool, GlobalAttention
+# from   torch_geometric.utils import add_self_loops
 
 
 # Define the Loss Function
@@ -700,7 +700,7 @@ class Model_SDP_Conv3d(nn.Module):
         self.Dense_Dropout    = nn.Dropout(dropout)
 
 
-        self.conv0 = Conv_Skip_Block_3d(in_channels=in_main_channels, N_kernels=N_kernels, activation_function=self.Conv_Activation, kernel_size=3,stride = 1, padding = (1,1,0)) # Should reducec this to the Tx20x20
+        self.conv0 = nn.Conv3d(in_channels=in_main_channels, out_channels=N_kernels, kernel_size=3, padding = (1,1,0) , stride = 1) # Out=> (N, N_kernels, 40, 20, 20)
         self.Conv1 = Conv_Skip_Block_3d(in_channels=N_kernels, N_kernels=N_kernels, activation_function=self.Conv_Activation, kernel_size=(3,3,3), padding=(1,1,1), dropout=dropout)
         self.Conv2 = Conv_Skip_Block_3d(in_channels=N_kernels, N_kernels=N_kernels, activation_function=self.Conv_Activation, kernel_size=(3,3,3), padding=(1,1,1), dropout=dropout)
         self.Conv3 = Conv_Skip_Block_3d(in_channels=N_kernels, N_kernels=N_kernels, activation_function=self.Conv_Activation, kernel_size=(3,3,3), padding=(1,1,1), dropout=dropout)
