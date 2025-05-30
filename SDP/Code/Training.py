@@ -22,7 +22,7 @@ elif 'tedtop' in hostname:
 else: 
     sys.path.append('/remote/tychodata/ftairli/work/Projects/Common/')
 
-ModelPath = os.path.abspath('../Models')
+ModelPath = os.path.abspath('../Models') + '/'
 sys.path.append(ModelPath)
 # Dataset modules
 from Dataset2 import DatasetContainer, ProcessingDatasetContainer
@@ -77,8 +77,8 @@ def LoadProcessingDataset(Path_To_Data,Path_To_Proc_Data,RunNames,RecalculateDat
 TestingThings = False
 if __name__ == '__main__' and TestingThings:
     # Reading the dataset    
-    Path_To_Data      = os.path.abspath('../../Data/Processed/')
-    Path_To_Proc_Data = os.path.abspath('../Data/')
+    Path_To_Data      = os.path.abspath('../../Data/Processed/') + '/'
+    Path_To_Proc_Data = os.path.abspath('../Data/') + '/'
     RunNames = ['CDEsDataset']
     RecalculateDataset = True
     NeedTraces = True
@@ -114,9 +114,9 @@ if __name__ == '__main__' and not TestingThings:
         torch.cuda.manual_seed_all(seed)
 
     # Save Paths
-    SavePath     = os.path.abspath('../Models/')
-    plotSavePath = os.path.abspath('../Results/TrainingPlots/')
-    LogPath      = os.path.abspath('../../TrainingLogs/')
+    SavePath     = os.path.abspath('../Models/') + '/'
+    plotSavePath = os.path.abspath('../Results/TrainingPlots/') + '/'
+    LogPath      = os.path.abspath('../../TrainingLogs/') + '/'
     # Check that all the paths exist
     assert os.path.exists(SavePath)     , f'SavePath {SavePath} does not exist'
     assert os.path.exists(plotSavePath) , f'plotSavePath {plotSavePath} does not exist'
@@ -128,8 +128,8 @@ if __name__ == '__main__' and not TestingThings:
         os.system(f'mkdir {plotSavePath}')
 
     # Reading the dataset    
-    Path_To_Data      = os.path.abspath('../../Data/Processed/')
-    Path_To_Proc_Data = os.path.abspath('../Data/')
+    Path_To_Data      = os.path.abspath('../../Data/Processed/') + '/'
+    Path_To_Proc_Data = os.path.abspath('../Data/') + '/'
     
     RunNames = ['CDEsDataset']
 
