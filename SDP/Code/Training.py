@@ -98,11 +98,11 @@ if __name__ == '__main__' and not TestingThings:
     Use_Test_Set         = False
     Use_All_Sets         = True
     Dataset_RandomIter   = True
-    RecalculateDataset   = False
+    RecalculateDataset   = True
     NeedTraces           = True
     LoadModel            = False
     DoNotTrain           = False
-    DatasetName          = 'SDP_Conv3d_Dataset' #No / or .pt JUST NAME, eg GraphStructure  Use None to save as default
+    DatasetName          = 'SDP_Conv3d_Dataset_InvertedBehind' #No / or .pt JUST NAME, eg GraphStructure  Use None to save as default
 
 
     if DoNotTrain: assert RecalculateDataset, 'Recalculate Dataset must be True if DoNotTrain is True'

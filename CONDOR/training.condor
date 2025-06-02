@@ -1,0 +1,90 @@
+# ------------------------------------------------------------------------------
+# input and output
+# ------------------------------------------------------------------------------
+logoutputpath  = /cr/work/hahn/training/event_lvl_pytorch/log
+getenv         = True
+
+# container_image = /cr/data01/hahn/projects.active/2025-02-10-pytorch/pytorch-container.sif
+
+grid = sd750-v3
+grid = sd1500-old
+grid = sd1500-star
+grid = sd1500-lhcr
+grid = sd1500-v3
+
+datadir = /lsdf/auger/nn-ds/sim_PhaseI_sd750/merged/17p0_19p0
+datadir = /lsdf/auger/nn-ds/sim_PhaseI_sd1500_old_eposlhcr/sel/18p0_20p0
+datadir = /lsdf/auger/nn-ds/sim_PhaseI_sd1500_old/sel/18p0_20p2
+
+datadir = /lsdf/auger/nn-ds/sim_PhaseI_sd1500_new_eposlhcr/sel/18p0_20p0
+datadir = /lsdf/auger/nn-ds/sim_PhaseI_sd1500_old_sibyllstar/sel/18p0_20p0
+datadir = /lsdf/auger/nn-ds/sim_PhaseI_sd1500_new_eposlhcr/sel/18p0_20p0
+datadir = /lsdf/auger/nn-ds/sim_PhaseI_sd1500/merged/18p0_20p2
+
+ODIR = /cr/work/hahn/training/event_lvl_pytorch
+
+# ------------------------------------------------------------------------------
+# executable and arguments
+# ------------------------------------------------------------------------------
+JobBatchName = $(grid)-nn-eposnewhalf
+Executable   = kane_v2_training.auto.sh   # Use bash wrappers for this if possible
+
+Output = $(logoutputpath)/$(JobBatchName).$(ClusterId).$(Step).out
+Error  = $(logoutputpath)/$(JobBatchName).$(ClusterId).$(Step).err
+Log    = $(logoutputpath)/$(JobBatchName).$(ClusterId).$(Step).log
+
+Requirements = ((TARGET.Machine == "crc2.iap.kit.edu")  \
+                ||                                      \
+                (TARGET.Machine == "crc1.iap.kit.edu"))
+
+# ------------------------------------------------------------------------------
+# resources
+# ------------------------------------------------------------------------------
+# request_memory = 44000
+request_memory = 24000
+request_gpus   = 1
+request_cpus   = 1
+# +Walltime      = 3 * 6
+
+# ------------------------------------------------------------------------------
+# queue
+# ------------------------------------------------------------------------------
+Max_materialize = 2 # max is 6
+priority = 20
+
+Arguments = $(ARGS) --split_seed $(Step)
+
+# common_args = --grid $(grid) --data $(datadir) --odir $(ODIR) \
+#     --add_sat_info --features_from_trace 12 --batchsize 128
+
+common_args = --grid $(grid) --data $(datadir) --odir $(ODIR)  \
+    --features_from_trace 12 --batchsize 128 \
+    --new_loss --use_v2_very_special
+
+# --learning_rate 1.2e-3 
+
+weightdir = /cr/work/hahn/training/event_lvl_pytorch/sd1500-v3/ta_12-ba_0256-lr_0p0012-use_states-seczen-add_sig-aug_0p05-very_specv2-nl/run_0001/weights/100.pt
+spec_args = --construct_state_map --learning_rate 1.2e-3 --add_seczen --keep_6t5 --remove_tellurium --reduce_tr_ds 0.5
+spec_args = --use_weights_from $(weightdir) --train_twice --add_signals --learning_rate 8.0e-5 --add_seczen --construct_state_map
+spec_args = --construct_state_map --learning_rate 1.2e-3 --add_seczen --add_pfa --keep_6t5
+
+# --augment_data
+# --gamma 0.99
+# --use_v2_very_special
+# --use_v2_special
+# --construct_state_map 
+# --high_energy_extension 
+# --reduce_fp_size_by 2
+# --add_ath_info_two
+# --keep_6t5
+# --add_seczen
+# --spec_loss_bias_weight 0.5
+
+Queue 10 ARGS from (
+  --turn_bad_frac 0.10 --augment_data $(common_args) $(spec_args)
+  --turn_bad_frac 0.10 --augment_data $(common_args) $(spec_args) --spec_loss_bias_weight 0.5
+  --turn_bad_frac 0.10 --augment_data $(common_args) $(spec_args) --spec_loss_bias_weight 0.0
+)
+
+# --spec_loss_bias_weight 0.0
+# --turn_bad_frac 0.05 $(common_args) --add_seczen --add_signals --spec_loss_bias_weight 0.0

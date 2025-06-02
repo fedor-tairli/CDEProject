@@ -135,6 +135,86 @@ def Truth_Just_SDP_single(Dataset,ProcessingDataset):
         assert ProcessingDataset._EventIds == IDsList, 'Event IDs do not match'
 
 
+def Truth_Just_SDP_single_InvertedBehind(Dataset,ProcessingDataset):
+    '''Gets just the SDP values,
+    Does not use atan2 as unnormalisation (<- what single means)
+    Inverting the Normal Vectors for events where shower lands behind camera
+    '''
+    IDsList = ()
+    Offsets = {1:44.45/180*torch.pi,2:-89.87/180*torch.pi,3:132.83/180*torch.pi}#,4:15/180*torch.pi,5:45/180*torch.pi,6:75/180*torch.pi}
+    Offsets = {1:(43.92 -89.34)/180*torch.pi, 2:0, 3:(132.30 -89.34)/180*torch.pi}
+
+    Gen_SDPTheta = torch.zeros(len(Dataset))
+    Gen_SDPPhi   = torch.zeros(len(Dataset))
+    Rec_SDPTheta = torch.zeros(len(Dataset))
+    Rec_SDPPhi   = torch.zeros(len(Dataset))
+    
+    SelectedTelescopes = torch.zeros(len(Dataset))
+    for i,Event in enumerate(Dataset):
+        # ID Checks
+        ID = (Event.get_value('EventID_1/2').int()*10000 + Event.get_value('EventID_2/2').int()%10000).item()
+        IDsList += (ID,)
+
+        if i%100 == 0:
+            print(f'    Processing Truth {i} / {len(Dataset)}',end='\r')
+        TelIDs        = Event.get_pixel_values('TelID')
+        EyeIDs        = Event.get_pixel_values('EyeID')
+        SelectedTelescopeID   = TelIDs.int().bincount().argmax()
+        
+        SelectedTelescopes[i] = SelectedTelescopeID
+        Gen_SDPPhi  [i]       = Event.get_value('Gen_SDPPhi')
+        Gen_SDPTheta[i]       = Event.get_value('Gen_SDPTheta')
+        Rec_SDPPhi  [i]       = Event.get_value('Rec_SDPPhi')
+        Rec_SDPTheta[i]       = Event.get_value('Rec_SDPTheta')
+    print()
+
+
+    # Adjust Phi to be centred around mirror
+    for i in range(1,4): # Apply offsets
+        print(f'Sum of SelectedTelescopes == {i} is {torch.sum(SelectedTelescopes == i)}')
+        Gen_SDPPhi[SelectedTelescopes == i] -= Offsets[i]
+        Rec_SDPPhi[SelectedTelescopes == i] -= Offsets[i]
+
+    # Do the inversion of the normal vectors for events where shower lands behind camera
+    IsBehind = (Gen_SDPPhi <torch.pi/2) & (Gen_SDPPhi >torch.pi/2)
+    Gen_SDPPhi[IsBehind] += torch.pi
+    Gen_SDPPhi[Gen_SDPPhi >  torch.pi] -= 2*torch.pi
+    Gen_SDPPhi[Gen_SDPPhi < -torch.pi] += 2*torch.pi
+    Rec_SDPPhi[IsBehind] += torch.pi
+    Rec_SDPPhi[Rec_SDPPhi >  torch.pi] -= 2*torch.pi
+    Rec_SDPPhi[Rec_SDPPhi < -torch.pi] += 2*torch.pi
+
+    # Normalise Theta
+    Gen_SDPTheta[IsBehind] = torch.pi - Gen_SDPTheta[IsBehind]
+    Rec_SDPTheta[IsBehind] = torch.pi - Rec_SDPTheta[IsBehind] # No need to place bounds, it never happens
+
+    Gen_SDPPhi   = Gen_SDPPhi+2*torch.pi*(Gen_SDPPhi<0)
+    Gen_SDPPhi   -= torch.pi
+    Rec_SDPPhi   = Rec_SDPPhi+2*torch.pi*(Rec_SDPPhi<0)
+    Rec_SDPPhi   -= torch.pi
+
+    # Normalise Theta
+    Gen_SDPTheta = torch.cos(Gen_SDPTheta)
+    Rec_SDPTheta = torch.cos(Rec_SDPTheta)
+    # Normalise Phi
+    Gen_SDPPhi   = torch.sin(Gen_SDPPhi)
+    Rec_SDPPhi   = torch.sin(Rec_SDPPhi)
+
+    if ProcessingDataset is None:
+        return torch.stack((Gen_SDPTheta,Gen_SDPPhi),dim=1), torch.stack((Rec_SDPTheta,Rec_SDPPhi),dim=1)
+    ProcessingDataset._Truth = torch.stack((Gen_SDPTheta,Gen_SDPPhi),dim=1)
+    ProcessingDataset._Rec   = torch.stack((Rec_SDPTheta,Rec_SDPPhi),dim=1)
+
+    ProcessingDataset.Unnormalise_Truth = Unnormalise_SDP
+    ProcessingDataset.Truth_Keys = ('SDPTheta','SDPPhi')
+    ProcessingDataset.Truth_Units =('rad','rad')
+    if ProcessingDataset._EventIds is None:
+        ProcessingDataset._EventIds = IDsList
+    else:
+        assert ProcessingDataset._EventIds == IDsList, 'Event IDs do not match'
+
+
+
 
 def Aux_Descriptors(Dataset, ProcessingDataset):
     ''' Will just provide some event descriptors for dependence inspection

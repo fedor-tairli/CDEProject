@@ -34,7 +34,7 @@ Pass_Main     = SDP_Conv_DataGen.Standard_Graph_Conv3d_Traces
 
 Pass_Aux      = SDP_Conv_DataGen.Aux_Descriptors
 
-Pass_Truth    = SDP_Conv_DataGen.Truth_Just_SDP_single
+Pass_Truth    = SDP_Conv_DataGen.Truth_Just_SDP_single_InvertedBehind
 
 Pass_Rec      = Pass_Rec_DoNothing
 
