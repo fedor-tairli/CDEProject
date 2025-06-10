@@ -1,0 +1,43 @@
+Log file for training of Model_SDP_Conv_Residual_SingleTel_NoPool 
+Start Time: 2025-06-02 16:49:27 
+End   Time: 2025-06-02 16:54:45 
+
+Training Parameters: 
+    LR : 0.0001 
+    epochs : 5 
+    BatchSize : 64 
+    accumulation_steps : 1 
+    epoch_done : 0 
+    batchBreak : 1e+99 
+    ValLossIncreasePatience : 5 
+    Optimiser : Adam 
+
+Model Parameters: 
+    in_main_channels : (2,) 
+    in_node_channels : 5 
+    in_edge_channels : 2 
+    in_aux_channels : 0 
+    N_kernels : 16 
+    N_heads : 16 
+    N_dense_nodes : 64 
+    N_LSTM_nodes : 64 
+    N_LSTM_layers : 5 
+    kernel_size : 10 
+    conv2d_init_type : normal 
+    model_Dropout : 0.2 
+
+Training Log: 
+    Training Exit Reason: Reached Final Epoch 
+
+    Final Losses: 
+        Total : 0.5008834650384892 
+        SDPTheta : 0.19541614586378697 
+        SDPPhi : 0.3054673190949782 
+    Final Validation Losses: 
+        Total : 0.457999050617218 
+        SDPTheta : 0.17927345633506775 
+        SDPPhi : 0.27872559428215027 
+    Final Metrics: 
+        SDPTheta : 0.45378339290618896 
+        SDPPhi : 0.6471637487411499 
+

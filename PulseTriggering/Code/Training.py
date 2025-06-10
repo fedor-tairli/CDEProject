@@ -7,102 +7,104 @@ os.system('clear')
 warnings.filterwarnings("ignore")
 
 
+# Special guest pandas
+# import numpy as np
+import pandas as pd
+
 import torch 
 # import torch.nn as nn
 # import torch.nn.functional as F
 import torch.optim as optim
 import torch.utils.data as data
-hostname = os.uname()
-if 'tycho' in hostname:
-    # Common folder is already in the path
-    pass
-elif 'tedtop' in hostname:
-    print('Setting up paths for tedtop')
-    sys.path.append('/home/fedor-tairli/work/CDEs/Dataset/')
-else: 
-    sys.path.append('/remote/tychodata/ftairli/work/Projects/Common/')
+
 
 ModelPath = os.path.abspath('../Models') + '/'
 sys.path.append(ModelPath)
 # Dataset modules
 from Dataset2 import DatasetContainer, ProcessingDatasetContainer
-from DataGenFunctions import Pass_Main,Pass_Aux,Pass_Truth,Pass_Rec,Pass_Graph,Pass_MetaData,Clean_Data
+def Do_Nothing(Truth, *kwargs):
+    '''
+    A function that does nothing, used as a placeholder
+    '''
+    return Truth
 
-def LoadProcessingDataset(Path_To_Data,Path_To_Proc_Data,RunNames,RecalculateDataset = False,NeedTraces = False,OptionalName = None):
-    if OptionalName is None: OptionalName = 'CurrentProcessingDataset'
-    '''Loads the dataset from the path and returns a ProcessingDatasetContainer'''
-    # Check if path to data endswith '/'
-    if Path_To_Data     .endswith('/'):Path_To_Data      = Path_To_Data[:-1]
-    if Path_To_Proc_Data.endswith('/'):Path_To_Proc_Data = Path_To_Proc_Data[:-1]
-    
-    
-    if (not RecalculateDataset) and (os.path.exists(Path_To_Proc_Data+f'/{OptionalName}.pt')):
-        print(f'Loading Dataset {OptionalName}')
-        Dataset = torch.load(Path_To_Proc_Data+f'/{OptionalName}.pt')
-        # Dataset.Truth_Keys = ('x','y','z','SDPPhi','CEDist')
-        # Dataset.Truth_Units =('','','','rad','m')
-        # torch.save(Dataset,Path_To_Proc_Data+f'/{OptionalName}.pt')
-        # print('Dataset Loaded, and saved with adjusted Truth_Keys and Truth_Units')
+
+def LoadProcessingDataset(Path_To_Data,DatasetName = None,RecalculateDataset = False):
+    # Load a clean ProcessingDatasetContainer, then Load the data into it from CSV File
+    if not RecalculateDataset and os.path.exists(DatasetName + '.pt'):
+        
+        ProcessingDataset = torch.load(DatasetName + '.pt',weights_only=False)
     else:
-        RecalculateDataset = True
 
-    if RecalculateDataset:
-        print('Recalculating Dataset')
-        GlobalDataset = DatasetContainer()
-        GlobalDataset.Load(Path_To_Data,RunNames,LoadTraces=NeedTraces)
-        Dataset = ProcessingDatasetContainer()
-        Dataset.set_Name(GlobalDataset.Name)
+        ProcessingDataset = ProcessingDatasetContainer()
+        # Read Shit from csv
+        # print('Readig In csv')
+        MetaData = []
+        Traces   = []
+        for DataChunk in pd.read_csv(Path_To_Data,delimiter=',',chunksize = 1000):
+            MetaData.append(torch.tensor(DataChunk.iloc[:, 0:3 ].values, dtype=torch.int64 ))
+            Traces  .append(torch.tensor(DataChunk.iloc[:, 3:-1].values, dtype=torch.float32))
+        MetaData = torch.cat(MetaData,dim=0)
+        Traces   = torch.cat(Traces  ,dim=0)
 
-        # Pass the data to the ProcessingDataset
+        # Need Traces to be of shape (N,1,1000) -> add extra dimension
+        Traces = Traces.unsqueeze(1)
+        print(f'Traces Computed with shape : {Traces.shape}')
 
-        Pass_Main (GlobalDataset,Dataset)
-        print()
-        Pass_Aux  (GlobalDataset,Dataset)
-        print()
-        Pass_Truth(GlobalDataset,Dataset)
-        print()
-        Pass_Rec  (GlobalDataset,Dataset)
-        print()
-        Pass_Graph(GlobalDataset,Dataset)
-        print()
-        Pass_MetaData(GlobalDataset,Dataset)
-        print()
+        # precompute Loss Weights
+        Weights = torch.ones_like(Traces)
+        
+        for i in range(len(Traces)):
+            if i%100 == 0: print(f'Calculating weights, {i}/{len(Traces)}',end = '\r')
+            # Apply the weight of the status of trace
+            Status_weight = 1 if MetaData[i,0] == 4 else 0.05
+            Weights[i,0,:]*= Status_weight
+            # Apply the weight of the calculated trigger
+            # MetaData[:,1] is the start of the trigger, MetaData[:,2] is the end of the trigger
 
-        # Save the dataset
-        Dataset.Save(Path_To_Proc_Data,Name = OptionalName)
-        print(f'Dataset used graphs = {Dataset.GraphData}')
-    Clean_Data(Dataset)
-    return Dataset
+            if MetaData[i,0] < 1:
+                Weights[i,0,:] *= 0.05
+            else:
+                start = max(int(MetaData[i,1]) -5,0   )
+                end   = min(int(MetaData[i,2]) +5,1000)
+                Weights[i,0,:start] *= 0.05
+                Weights[i,0,end:]   *= 0.05
+            
 
-TestingThings = False
-if __name__ == '__main__' and TestingThings:
-    # Reading the dataset    
-    Path_To_Data      = os.path.abspath('../../Data/Processed/') + '/'
-    Path_To_Proc_Data = os.path.abspath('../Data/') + '/'
-    RunNames = ['CDEsDataset']
-    RecalculateDataset = True
-    NeedTraces = True
-    DatasetName = 'SDP_Dataset'
-    Dataset = LoadProcessingDataset(Path_To_Data,Path_To_Proc_Data,RunNames,RecalculateDataset = RecalculateDataset,NeedTraces = NeedTraces,OptionalName = DatasetName)
+        ProcessingDataset.GraphData = False
+        ProcessingDataset._Main.append(Traces)
+        ProcessingDataset._Truth = Traces
+        ProcessingDataset._Rec   = Traces
+        ProcessingDataset._EventIds = torch.zeros(len(Traces))
+        ProcessingDataset._Aux      = Weights
+        ProcessingDataset._MetaData = MetaData
 
-    for data in Dataset._Main:
-        # replace the nan values with 0
-        data[torch.isnan(data)] = 0
-    
-    Dataset.Save(Path_To_Proc_Data,Name = DatasetName)
+        ProcessingDataset.Name = DatasetName
+        ProcessingDataset.Unnormalise_Truth = Do_Nothing
+        ProcessingDataset.Truth_Keys = ('TraceLikeness',)
+        ProcessingDataset.Truth_Units = ('',)
+        ProcessingDataset.Aux_Keys = ('Weights',)
+        ProcessingDataset.Aux_Units   = ('',)
 
-if __name__ == '__main__' and not TestingThings:
+
+
+        ProcessingDataset.Save('.',Name = DatasetName)
+    return ProcessingDataset
+
+
+
+if __name__ == '__main__':
 
     # Flags
     Set_Custom_Seed      = False
     Use_Test_Set         = False
     Use_All_Sets         = True
     Dataset_RandomIter   = True
-    RecalculateDataset   = False
+    RecalculateDataset   = True
     NeedTraces           = True
     LoadModel            = False
     DoNotTrain           = False
-    DatasetName          = 'SDP_Conv3d_Dataset_InvertedBehind' #No / or .pt JUST NAME, eg GraphStructure  Use None to save as default
+    DatasetName          = 'TracesDataset' #No / or .pt JUST NAME, eg GraphStructure  Use None to save as default
 
 
     if DoNotTrain: assert RecalculateDataset, 'Recalculate Dataset must be True if DoNotTrain is True'
@@ -114,12 +116,12 @@ if __name__ == '__main__' and not TestingThings:
         torch.cuda.manual_seed_all(seed)
 
     # Save Paths
-    SavePath     = os.path.abspath('../Models/') + '/'
-    plotSavePath = os.path.abspath('../Results/TrainingPlots/') + '/'
-    LogPath      = os.path.abspath('../../TrainingLogs/') + '/'
+    SavePath     = os.path.abspath('../Models') + '/'
+    plotSavePath = None
+    LogPath      = os.path.abspath('.') + '/'
     # Check that all the paths exist
     assert os.path.exists(SavePath)     , f'SavePath {SavePath} does not exist'
-    assert os.path.exists(plotSavePath) , f'plotSavePath {plotSavePath} does not exist'
+    if plotSavePath is not None: assert os.path.exists(plotSavePath) , f'plotSavePath {plotSavePath} does not exist'
     assert os.path.exists(LogPath)      , f'LogPath {LogPath} does not exist'
 
 
@@ -128,13 +130,10 @@ if __name__ == '__main__' and not TestingThings:
         os.system(f'mkdir {plotSavePath}')
 
     # Reading the dataset    
-    Path_To_Data      = os.path.abspath('../../Data/Processed/') + '/'
-    Path_To_Proc_Data = os.path.abspath('../Data/') + '/'
+    Path_To_Data      = os.path.abspath('../Data') + '/EPOSTLHC_R_180_200_allmass_HybridSd_CORSIKA78010_FLUKA_Runall_traces.csv'
     
-    RunNames = ['CDEsDataset']
-
     if DoNotTrain: print('No Training will be done, Just Reading the Dataset')
-    Dataset = LoadProcessingDataset(Path_To_Data,Path_To_Proc_Data,RunNames,RecalculateDataset = RecalculateDataset,NeedTraces = NeedTraces,OptionalName = DatasetName)
+    Dataset = LoadProcessingDataset(Path_To_Data,RecalculateDataset = RecalculateDataset,DatasetName = DatasetName)
     Dataset.AssignIndices()
     Dataset.RandomIter = Dataset_RandomIter
 
@@ -142,13 +141,13 @@ if __name__ == '__main__' and not TestingThings:
     if not DoNotTrain:
         # import model
         from TrainingModule import Train , Tracker
-        from Model_SDP import Loss as Loss_function
-        from Model_SDP import validate, metric
-        from Model_SDP import Model_SDP_Conv_Residual_SingleTel_NoPool
+        from TraceTriggerModel import Loss as Loss_function
+        from TraceTriggerModel import validate, metric
+        from TraceTriggerModel import TraceTriggerModel
 
         
         Models = [
-            Model_SDP_Conv_Residual_SingleTel_NoPool,
+            TraceTriggerModel,
             # Model_SDP_Conv_Residual_SingleTel_NoPool_JustTheta,
             # Model_SDP_Conv_Residual_SingleTel_NoPool_JustPhi,            
         ]
@@ -159,7 +158,7 @@ if __name__ == '__main__' and not TestingThings:
 
         # Model Parameters 
         Model_Parameters = {
-            'in_main_channels': (2,),
+            'in_main_channels': (1,),
             'in_node_channels': 5   ,
             'in_edge_channels': 2   ,
             'in_aux_channels' : 0   ,
@@ -175,7 +174,7 @@ if __name__ == '__main__' and not TestingThings:
         
         Training_Parameters = {
             'LR': 0.0001,
-            'epochs': 5,
+            'epochs': 30,
             'BatchSize': 64,
             'accumulation_steps': 1,
             'epoch_done': 0,
@@ -200,7 +199,7 @@ if __name__ == '__main__' and not TestingThings:
             if Training_Parameters['Optimiser'] == 'SGD' : optimizer = optim.SGD (model.parameters(), lr=Training_Parameters['LR'], momentum=0.9)
             gamma = 0.001**(1/30) if Training_Parameters['epochs']>30 else 0.001**(1/Training_Parameters['epochs']) # Reduce the LR by factor of 1000 over 30 epochs or less
             print(f'Gamma in LR Reduction: {gamma}')
-            scheduler = torch.optim.lr_scheduler.ExponentialLR    (optimiser, gamma = gamma, last_epoch=-1, verbose=False)
+            scheduler = torch.optim.lr_scheduler.ExponentialLR    (optimiser, gamma = gamma, last_epoch=-1)
 
 
             print('Training model: '     ,model.Name)

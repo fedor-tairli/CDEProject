@@ -1,0 +1,39 @@
+# ------------------------------------------------------------------------------
+# input and output
+# ------------------------------------------------------------------------------
+logoutputpath  = /cr/work/tairli/TracesTriggers
+getenv         = True
+
+# ------------------------------------------------------------------------------
+# executable and arguments
+# ------------------------------------------------------------------------------
+JobBatchName = Training_Pulse_Finder
+Executable   = /cr/work/tairli/TracesTriggers/Train.sh
+Arguments    = 
+
+
+Output = $(logoutputpath)/Logs/$(JobBatchName).$(ClusterId).$(Step).out
+Error  = $(logoutputpath)/Logs/$(JobBatchName).$(ClusterId).$(Step).err
+Log    = $(logoutputpath)/Logs/$(JobBatchName).$(ClusterId).$(Step).log
+
+Requirements = ((TARGET.Machine == "crc2.iap.kit.edu")  \
+                ||                                      \
+                (TARGET.Machine == "crc1.iap.kit.edu"))
+
+# ------------------------------------------------------------------------------
+# resources
+# ------------------------------------------------------------------------------
+# request_memory = 44000
+request_memory = 32000
+request_gpus   = 1
+request_cpus   = 1
+# +Walltime      = 3 * 6
+
+# ------------------------------------------------------------------------------
+# queue
+# ------------------------------------------------------------------------------
+Max_materialize = 2
+#Maximum possible  max_materialise is 6
+priority = 20
+
+Queue
