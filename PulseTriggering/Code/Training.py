@@ -5,7 +5,7 @@ import time
 import warnings
 os.system('clear')
 warnings.filterwarnings("ignore")
-
+import argparse
 
 # Special guest pandas
 # import numpy as np
@@ -67,8 +67,8 @@ def LoadProcessingDataset(Path_To_Data,DatasetName = None,RecalculateDataset = F
             else:
                 start = max(int(MetaData[i,1]) -5,0   )
                 end   = min(int(MetaData[i,2]) +5,1000)
-                Weights[i,0,:start] *= 0.05
-                Weights[i,0,end:]   *= 0.05
+                Weights[i,0,:start] *= 0.01
+                Weights[i,0,end:]   *= 0.01
             
 
         ProcessingDataset.GraphData = False
@@ -92,6 +92,11 @@ def LoadProcessingDataset(Path_To_Data,DatasetName = None,RecalculateDataset = F
     return ProcessingDataset
 
 
+parser = argparse.ArgumentParser()
+parser.add_argument('-n','--bottlenecksize', type=int, default=None, help='Size of the bottleneck layer')
+args = parser.parse_args()
+BottleNeckSize = args.bottlenecksize
+
 
 if __name__ == '__main__':
 
@@ -100,7 +105,7 @@ if __name__ == '__main__':
     Use_Test_Set         = False
     Use_All_Sets         = True
     Dataset_RandomIter   = True
-    RecalculateDataset   = True
+    RecalculateDataset   = False
     NeedTraces           = True
     LoadModel            = False
     DoNotTrain           = False
@@ -141,17 +146,17 @@ if __name__ == '__main__':
     if not DoNotTrain:
         # import model
         from TrainingModule import Train , Tracker
-        from TraceTriggerModel import Loss as Loss_function
-        from TraceTriggerModel import validate, metric
-        from TraceTriggerModel import TraceTriggerModel
+        from TraceTriggerModel_Dense import Loss,Weight_Loss
+        from TraceTriggerModel_Dense import validate, metric
+        from TraceTriggerModel_Dense import TraceTriggerModelDense_NF
 
         
         Models = [
-            TraceTriggerModel,
+            TraceTriggerModelDense_NF,
             # Model_SDP_Conv_Residual_SingleTel_NoPool_JustTheta,
             # Model_SDP_Conv_Residual_SingleTel_NoPool_JustPhi,            
         ]
-        
+
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         # device = 'cpu'
         print(f'Using device: {device}')
@@ -170,12 +175,13 @@ if __name__ == '__main__':
             'kernel_size'     : 10  ,
             'conv2d_init_type': 'normal',
             'model_Dropout'   : 0.2 ,
+            'BottleNeckSize'  : BottleNeckSize,
         }
         
         Training_Parameters = {
             'LR': 0.0001,
-            'epochs': 30,
-            'BatchSize': 64,
+            'epochs': 20,
+            'BatchSize': 128,
             'accumulation_steps': 1,
             'epoch_done': 0,
             'batchBreak': 1e99,
@@ -184,6 +190,13 @@ if __name__ == '__main__':
         }
         for Model in Models:
             model = Model(**Model_Parameters).to(device)
+            if 'TraceTriggerModel3' in model.Name: Loss_function = Weight_Loss
+            else: Loss_function = Loss
+            
+            # Add Bottleneck Size to model name
+            if not BottleNeckSize is None:
+                model.Name = model.Name+f'{BottleNeckSize}F'
+            
             if LoadModel and os.path.exists(ModelPath+model.Name+'.pt'):
                 model = torch.load(ModelPath+model.Name+'.pt')
                 tracker = torch.load(ModelPath+model.Name+'_Tracker.pt')

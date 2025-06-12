@@ -9,7 +9,7 @@ getenv         = True
 # ------------------------------------------------------------------------------
 JobBatchName = Training_Pulse_Finder
 Executable   = /cr/work/tairli/TracesTriggers/Train.sh
-Arguments    = 
+Arguments    = -n $(N)
 
 
 Output = $(logoutputpath)/Logs/$(JobBatchName).$(ClusterId).$(Step).out
@@ -36,4 +36,4 @@ Max_materialize = 2
 #Maximum possible  max_materialise is 6
 priority = 20
 
-Queue
+Queue N in 1,2,3,5,10
