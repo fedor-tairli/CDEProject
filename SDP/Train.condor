@@ -1,7 +1,7 @@
 # ------------------------------------------------------------------------------
 # input and output
 # ------------------------------------------------------------------------------
-logoutputpath  = /cr/work/tairli/CONDOR_Logs/
+logoutputpath  = /cr/work/tairli/CONDOR_Logs
 getenv         = True
 
 # ------------------------------------------------------------------------------
@@ -12,9 +12,9 @@ Executable   = /cr/work/tairli/CDEs/SDP/Train.sh
 Arguments    = -selectnetwork $(N)
 
 
-Output = $(logoutputpath)/Logs/$(JobBatchName).$(ClusterId).$(N).out
-Error  = $(logoutputpath)/Logs/$(JobBatchName).$(ClusterId).$(N).err
-Log    = $(logoutputpath)/Logs/$(JobBatchName).$(ClusterId).$(N).log
+Output = $(logoutputpath)/$(JobBatchName).$(ClusterId).$(N).out
+Error  = $(logoutputpath)/$(JobBatchName).$(ClusterId).$(N).err
+Log    = $(logoutputpath)/$(JobBatchName).$(ClusterId).$(N).log
 
 Requirements = ((TARGET.Machine == "crc2.iap.kit.edu")  \
                 ||                                      \
@@ -25,14 +25,14 @@ Requirements = ((TARGET.Machine == "crc2.iap.kit.edu")  \
 # ------------------------------------------------------------------------------
 # request_memory = 44000
 request_memory = 32000
-#request_gpus   = 1
+request_gpus   = 1
 request_cpus   = 1
 # +Walltime      = 3 * 6
 
 # ------------------------------------------------------------------------------
 # queue
 # ------------------------------------------------------------------------------
-Max_materialize = 2
+Max_materialize = 3
 #Maximum possible  max_materialise is 6
 priority = 20
 

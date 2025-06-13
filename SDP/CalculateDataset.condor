@@ -1,7 +1,7 @@
 # ------------------------------------------------------------------------------
 # input and output
 # ------------------------------------------------------------------------------
-logoutputpath  = /cr/work/tairli/CONDOR_Logs/
+logoutputpath  = /cr/work/tairli/CONDOR_Logs
 getenv         = True
 
 # ------------------------------------------------------------------------------
@@ -9,12 +9,12 @@ getenv         = True
 # ------------------------------------------------------------------------------
 JobBatchName = Training_SDP_Reco
 Executable   = /cr/work/tairli/CDEs/SDP/Train.sh
-Arguments    = -selectnetwork $(N)
+Arguments    = 
 
 
-Output = $(logoutputpath)/Logs/$(JobBatchName).$(ClusterId).$(N).out
-Error  = $(logoutputpath)/Logs/$(JobBatchName).$(ClusterId).$(N).err
-Log    = $(logoutputpath)/Logs/$(JobBatchName).$(ClusterId).$(N).log
+Output = $(logoutputpath)/$(JobBatchName).$(ClusterId).$(N).out
+Error  = $(logoutputpath)/$(JobBatchName).$(ClusterId).$(N).err
+Log    = $(logoutputpath)/$(JobBatchName).$(ClusterId).$(N).log
 
 Requirements = ((TARGET.Machine == "crc2.iap.kit.edu")  \
                 ||                                      \
@@ -36,4 +36,4 @@ Max_materialize = 2
 #Maximum possible  max_materialise is 6
 priority = 20
 
-Queue N in -1
+Queue
