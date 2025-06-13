@@ -132,11 +132,11 @@ if __name__ == '__main__' and not TestingThings:
     LogPath      = os.path.abspath('../../TrainingLogs/') + '/'
     # Check that all the paths exist
     assert os.path.exists(SavePath)     , f'SavePath {SavePath} does not exist'
-    assert os.path.exists(plotSavePath) , f'plotSavePath {plotSavePath} does not exist'
     assert os.path.exists(LogPath)      , f'LogPath {LogPath} does not exist'
 
 
     if plotSavePath != None:  # Purge the directory
+        assert os.path.exists(plotSavePath) , f'plotSavePath {plotSavePath} does not exist'
         os.system(f'rm -r {plotSavePath}')
         os.system(f'mkdir {plotSavePath}')
 
