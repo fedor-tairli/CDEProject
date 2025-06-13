@@ -84,7 +84,7 @@ parser.add_argument('-','--bottlenecksize', type=int, default=None, help='Size o
 parser.add_argument('--selectnetwork', type=int, default=None, help='Select Network to train')
 args = parser.parse_args()
 BottleNeckSize = args.bottlenecksize
-SelectNetwrork = args.selectnetwork
+SelectNetwork = args.selectnetwork
 
 
 TestingThings = False
@@ -146,7 +146,7 @@ if __name__ == '__main__' and not TestingThings:
     
     RunNames = ['CDEsDataset']
 
-    if SelectNetwrork == -1:
+    if SelectNetwork == -1:
         DoNotTrain = True
 
     if DoNotTrain: print('No Training will be done, Just Reading the Dataset')
@@ -170,9 +170,9 @@ if __name__ == '__main__' and not TestingThings:
             Model_SDP_Conv_Residual_SingleTel_NoPool_JustPhi,            
         ]
         
-        if SelectNetwrork is not None:
-            assert SelectNetwrork < len(Models), f'SelectNetwork {SelectNetwrork} is out of range, max is {len(Models)-1}'
-            Models = [Models[SelectNetwrork]]
+        if SelectNetwork is not None:
+            assert SelectNetwork < len(Models), f'SelectNetwork {SelectNetwork} is out of range, max is {len(Models)-1}'
+            Models = [Models[SelectNetwork]]
             print(f'Selected Model: {Models[0].Name}')
         # If none, then train all the models
 

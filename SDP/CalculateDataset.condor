@@ -1,20 +1,20 @@
 # ------------------------------------------------------------------------------
 # input and output
 # ------------------------------------------------------------------------------
-logoutputpath  = /cr/work/tairli/TracesTriggers
+logoutputpath  = /cr/work/tairli/CONDOR_Logs/
 getenv         = True
 
 # ------------------------------------------------------------------------------
 # executable and arguments
 # ------------------------------------------------------------------------------
-JobBatchName = Training_Pulse_Finder
-Executable   = /cr/work/tairli/TracesTriggers/Train.sh
-Arguments    = -n $(N)
+JobBatchName = Training_SDP_Reco
+Executable   = /cr/work/tairli/CDEs/SDP/Train.sh
+Arguments    = -selectnetwork $(N)
 
 
-Output = $(logoutputpath)/Logs/$(JobBatchName).$(ClusterId).$(N)F.out
-Error  = $(logoutputpath)/Logs/$(JobBatchName).$(ClusterId).$(N)F.err
-Log    = $(logoutputpath)/Logs/$(JobBatchName).$(ClusterId).$(N)F.log
+Output = $(logoutputpath)/Logs/$(JobBatchName).$(ClusterId).$(N).out
+Error  = $(logoutputpath)/Logs/$(JobBatchName).$(ClusterId).$(N).err
+Log    = $(logoutputpath)/Logs/$(JobBatchName).$(ClusterId).$(N).log
 
 Requirements = ((TARGET.Machine == "crc2.iap.kit.edu")  \
                 ||                                      \
@@ -25,7 +25,7 @@ Requirements = ((TARGET.Machine == "crc2.iap.kit.edu")  \
 # ------------------------------------------------------------------------------
 # request_memory = 44000
 request_memory = 32000
-request_gpus   = 1
+#request_gpus   = 1
 request_cpus   = 1
 # +Walltime      = 3 * 6
 
@@ -36,4 +36,4 @@ Max_materialize = 2
 #Maximum possible  max_materialise is 6
 priority = 20
 
-Queue N in 3,5,10,50
+Queue N in -1

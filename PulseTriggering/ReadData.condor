@@ -14,7 +14,7 @@ outfilepath = /cr/work/tairli/TracesTriggers/Data/$(fpath1)/$(fpath2)/$(filename
 # ------------------------------------------------------------------------------
 JobBatchName = $(filename)_reading_traces
 Executable   = /cr/work/tairli/TracesTriggers/ReadTraces
-Arguments    = -n 2000 --minStatus 4 $(infilepath) $(outfilepath)
+Arguments    = -n 22000 --minStatus 4 $(infilepath) $(outfilepath)
 
 
 Output = $(logoutputpath)/Logs/$(JobBatchName).$(ClusterId).$(Step).out
@@ -41,4 +41,4 @@ Max_materialize = 2
 #Maximum possible  max_materialise is 6
 priority = 20
 
-Queue fpath1,fpath2,filename from datafiles_test.txt
+Queue fpath1,fpath2,filename from datafiles.txt
