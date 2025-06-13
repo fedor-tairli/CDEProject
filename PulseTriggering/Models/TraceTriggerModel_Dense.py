@@ -59,6 +59,7 @@ def metric(model,Dataset,device,keys=['TraceLikeness'],BatchSize = 256):
     metrics = {'TraceLikeness': 0.0}
     return metrics
 
+
 def validate(model,Dataset,device,keys=['TraceLikeness'],BatchSize = 1024):
     '''
     Runs Loss on the validation dataset and returns'''
