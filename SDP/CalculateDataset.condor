@@ -7,14 +7,14 @@ getenv         = True
 # ------------------------------------------------------------------------------
 # executable and arguments
 # ------------------------------------------------------------------------------
-JobBatchName = Training_SDP_Reco
+JobBatchName = Recalculating_for_SDP
 Executable   = /cr/work/tairli/CDEs/SDP/Train.sh
 Arguments    = 
 
 
-Output = $(logoutputpath)/$(JobBatchName).$(ClusterId).$(N).out
-Error  = $(logoutputpath)/$(JobBatchName).$(ClusterId).$(N).err
-Log    = $(logoutputpath)/$(JobBatchName).$(ClusterId).$(N).log
+Output = $(logoutputpath)/$(JobBatchName).$(ClusterId).out
+Error  = $(logoutputpath)/$(JobBatchName).$(ClusterId).err
+Log    = $(logoutputpath)/$(JobBatchName).$(ClusterId).log
 
 Requirements = ((TARGET.Machine == "crc2.iap.kit.edu")  \
                 ||                                      \
