@@ -5,7 +5,7 @@ import time
 import warnings
 os.system('clear')
 warnings.filterwarnings("ignore")
-
+import argparse
 
 import torch 
 # import torch.nn as nn
@@ -19,8 +19,12 @@ if 'tycho' in hostname:
 elif 'tedtop' in hostname:
     print('Setting up paths for tedtop')
     sys.path.append('/home/fedor-tairli/work/CDEs/Dataset/')
-else: 
+elif 'ycho' in hostname: 
     sys.path.append('/remote/tychodata/ftairli/work/Projects/Common/')
+else:
+    # Assume KIT CLuster
+    sys.path.append('/cr/work/tairli/CDEs/Dataset/')
+
 
 ModelPath = os.path.abspath('../Models') + '/'
 sys.path.append(ModelPath)
@@ -74,6 +78,15 @@ def LoadProcessingDataset(Path_To_Data,Path_To_Proc_Data,RunNames,RecalculateDat
     Clean_Data(Dataset)
     return Dataset
 
+
+parser = argparse.ArgumentParser()
+parser.add_argument('-','--bottlenecksize', type=int, default=None, help='Size of the bottleneck layer')
+parser.add_argument('--selectnetwork', type=int, default=None, help='Select Network to train')
+args = parser.parse_args()
+BottleNeckSize = args.bottlenecksize
+SelectNetwrork = args.selectnetwork
+
+
 TestingThings = False
 if __name__ == '__main__' and TestingThings:
     # Reading the dataset    
@@ -102,7 +115,7 @@ if __name__ == '__main__' and not TestingThings:
     NeedTraces           = True
     LoadModel            = False
     DoNotTrain           = False
-    DatasetName          = 'SDP_Conv3d_Dataset_InvertedBehind' #No / or .pt JUST NAME, eg GraphStructure  Use None to save as default
+    DatasetName          = 'SDP_Conv3d_Dataset_Status4' #No / or .pt JUST NAME, eg GraphStructure  Use None to save as default
 
 
     if DoNotTrain: assert RecalculateDataset, 'Recalculate Dataset must be True if DoNotTrain is True'
@@ -115,7 +128,7 @@ if __name__ == '__main__' and not TestingThings:
 
     # Save Paths
     SavePath     = os.path.abspath('../Models/') + '/'
-    plotSavePath = os.path.abspath('../Results/TrainingPlots/') + '/'
+    plotSavePath = None #os.path.abspath('../Results/TrainingPlots/') + '/'
     LogPath      = os.path.abspath('../../TrainingLogs/') + '/'
     # Check that all the paths exist
     assert os.path.exists(SavePath)     , f'SavePath {SavePath} does not exist'
@@ -133,6 +146,9 @@ if __name__ == '__main__' and not TestingThings:
     
     RunNames = ['CDEsDataset']
 
+    if SelectNetwrork == -1:
+        DoNotTrain = True
+
     if DoNotTrain: print('No Training will be done, Just Reading the Dataset')
     Dataset = LoadProcessingDataset(Path_To_Data,Path_To_Proc_Data,RunNames,RecalculateDataset = RecalculateDataset,NeedTraces = NeedTraces,OptionalName = DatasetName)
     Dataset.AssignIndices()
@@ -144,28 +160,35 @@ if __name__ == '__main__' and not TestingThings:
         from TrainingModule import Train , Tracker
         from Model_SDP import Loss as Loss_function
         from Model_SDP import validate, metric
-        from Model_SDP import Model_SDP_Conv_Residual_SingleTel_NoPool
+        from Model_SDP import Model_SDP_Conv_Residual_SingleTel_NoPool, Model_SDP_Conv_Residual_SingleTel_NoPool_JustTheta, Model_SDP_Conv_Residual_SingleTel_NoPool_JustPhi
+        
 
         
         Models = [
             Model_SDP_Conv_Residual_SingleTel_NoPool,
-            # Model_SDP_Conv_Residual_SingleTel_NoPool_JustTheta,
-            # Model_SDP_Conv_Residual_SingleTel_NoPool_JustPhi,            
+            Model_SDP_Conv_Residual_SingleTel_NoPool_JustTheta,
+            Model_SDP_Conv_Residual_SingleTel_NoPool_JustPhi,            
         ]
         
+        if SelectNetwrork is not None:
+            assert SelectNetwrork < len(Models), f'SelectNetwork {SelectNetwrork} is out of range, max is {len(Models)-1}'
+            Models = [Models[SelectNetwrork]]
+            print(f'Selected Model: {Models[0].Name}')
+        # If none, then train all the models
+
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         # device = 'cpu'
         print(f'Using device: {device}')
 
         # Model Parameters 
         Model_Parameters = {
-            'in_main_channels': (2,),
+            'in_main_channels': (1,),
             'in_node_channels': 5   ,
             'in_edge_channels': 2   ,
             'in_aux_channels' : 0   ,
             'N_kernels'       : 16  ,
             'N_heads'         : 16  ,
-            'N_dense_nodes'   : 64  ,
+            'N_dense_nodes'   : 128  ,
             'N_LSTM_nodes'    : 64  ,
             'N_LSTM_layers'   : 5   ,
             'kernel_size'     : 10  ,
@@ -175,7 +198,7 @@ if __name__ == '__main__' and not TestingThings:
         
         Training_Parameters = {
             'LR': 0.0001,
-            'epochs': 5,
+            'epochs': 15,
             'BatchSize': 64,
             'accumulation_steps': 1,
             'epoch_done': 0,
@@ -183,6 +206,7 @@ if __name__ == '__main__' and not TestingThings:
             'ValLossIncreasePatience': 5,
             'Optimiser': 'Adam'
         }
+
         for Model in Models:
             model = Model(**Model_Parameters).to(device)
             if LoadModel and os.path.exists(ModelPath+model.Name+'.pt'):

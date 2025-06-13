@@ -296,3 +296,50 @@ def Standard_Graph_Conv3d_Traces(Dataset,ProcessingDataset):
         ProcessingDataset._EventIds = IDsList
     else:
         assert ProcessingDataset._EventIds == IDsList, 'EventIDs do not match'    
+
+
+
+
+def Main_Conv2d_Grid_Charge_Status4Only(Dataset,ProcessingDataset):
+    ''' Will just provide 1 mirror array of pixel signals
+    Main is a tensor of shape (N,C,20,22) where C is the number of channels
+    Selects only the hottest telescope
+    '''
+    # Has to be done on Event-by-Event basis
+    # Preinitialize the tensor
+    IDsList = ()
+    Main = torch.zeros((len(Dataset),2,20,22))
+    if ProcessingDataset is None:
+        Main = torch.zeros(10000,1,20,22)
+    for i,Event in enumerate(Dataset):
+        if i%100 == 0:
+            print(f'    Processing Main {i} / {len(Dataset)}',end='\r')
+        if i == 10000 and ProcessingDataset is None: break
+        # ID Checks
+        ID = (Event.get_value('EventID_1/2').int()*10000 + Event.get_value('EventID_2/2').int()%10000).item()
+        IDsList += (ID,)
+
+        # There only should exist only one telescope. So no need to check for telescope selection
+        PixelIDs      = Event.get_pixel_values('PixelID')
+        TelIDs        = Event.get_pixel_values('TelID')
+        Charge        = Event.get_pixel_values('Charge')
+        Status        = Event.get_pixel_values('Status')
+        
+        PixelIDs = PixelIDs[Status == 4]
+        TelIDs   = TelIDs  [Status == 4]
+        Charge   = Charge  [Status == 4]
+
+
+        Charge = torch.log10(torch.clamp_min(Charge,0)+1)/3.75
+        
+        Xs,Ys         = IndexToXY(PixelIDs-(TelIDs-1)*440+1,return_tensor=True)
+        Main[i,0,Xs,Ys] = Charge
+
+    # Pass the data to the ProcessingDataset
+    if ProcessingDataset is None:
+        return Main
+    ProcessingDataset._Main.append(Main)
+    if ProcessingDataset._EventIds is None:
+        ProcessingDataset._EventIds = IDsList
+    else:
+        assert ProcessingDataset._EventIds == IDsList, 'Event IDs do not match'
