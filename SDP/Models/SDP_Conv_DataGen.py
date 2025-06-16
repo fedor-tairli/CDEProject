@@ -308,7 +308,7 @@ def Main_Conv2d_Grid_Charge_Status4Only(Dataset,ProcessingDataset):
     # Has to be done on Event-by-Event basis
     # Preinitialize the tensor
     IDsList = ()
-    Main = torch.zeros((len(Dataset),2,20,22))
+    Main = torch.zeros((len(Dataset),1,20,22))
     if ProcessingDataset is None:
         Main = torch.zeros(10000,1,20,22)
     for i,Event in enumerate(Dataset):

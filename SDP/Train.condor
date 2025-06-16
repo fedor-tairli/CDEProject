@@ -9,7 +9,7 @@ getenv         = True
 # ------------------------------------------------------------------------------
 JobBatchName = Training_SDP_Reco
 Executable   = /cr/work/tairli/CDEs/SDP/Train.sh
-Arguments    = -selectnetwork $(N)
+Arguments    = --selectnetwork $(N)
 
 
 Output = $(logoutputpath)/$(JobBatchName).$(ClusterId).$(N).out
@@ -24,7 +24,7 @@ Requirements = ((TARGET.Machine == "crc2.iap.kit.edu")  \
 # resources
 # ------------------------------------------------------------------------------
 # request_memory = 44000
-request_memory = 32000
+request_memory = 16000
 request_gpus   = 1
 request_cpus   = 1
 # +Walltime      = 3 * 6

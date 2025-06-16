@@ -42,7 +42,7 @@ def LoadProcessingDataset(Path_To_Data,Path_To_Proc_Data,RunNames,RecalculateDat
     
     if (not RecalculateDataset) and (os.path.exists(Path_To_Proc_Data+f'/{OptionalName}.pt')):
         print(f'Loading Dataset {OptionalName}')
-        Dataset = torch.load(Path_To_Proc_Data+f'/{OptionalName}.pt')
+        Dataset = torch.load(Path_To_Proc_Data+f'/{OptionalName}.pt', weights_only=False)
         # Dataset.Truth_Keys = ('x','y','z','SDPPhi','CEDist')
         # Dataset.Truth_Units =('','','','rad','m')
         # torch.save(Dataset,Path_To_Proc_Data+f'/{OptionalName}.pt')
@@ -93,7 +93,7 @@ if __name__ == '__main__' and TestingThings:
     Path_To_Data      = os.path.abspath('../../Data/Processed/') + '/'
     Path_To_Proc_Data = os.path.abspath('../Data/') + '/'
     RunNames = ['CDEsDataset']
-    RecalculateDataset = True
+    RecalculateDataset = False
     NeedTraces = True
     DatasetName = 'SDP_Dataset'
     Dataset = LoadProcessingDataset(Path_To_Data,Path_To_Proc_Data,RunNames,RecalculateDataset = RecalculateDataset,NeedTraces = NeedTraces,OptionalName = DatasetName)
@@ -111,11 +111,11 @@ if __name__ == '__main__' and not TestingThings:
     Use_Test_Set         = False
     Use_All_Sets         = True
     Dataset_RandomIter   = True
-    RecalculateDataset   = True
+    RecalculateDataset   = False
     NeedTraces           = True
     LoadModel            = False
-    DoNotTrain           = True
-    DatasetName          = 'SDP_Conv3d_Dataset_Status4' #No / or .pt JUST NAME, eg GraphStructure  Use None to save as default
+    DoNotTrain           = False
+    DatasetName          = 'SDP_Conv2d_Status4_Dataset' #No / or .pt JUST NAME, eg GraphStructure  Use None to save as default
 
 
     if DoNotTrain: assert RecalculateDataset, 'Recalculate Dataset must be True if DoNotTrain is True'
@@ -224,7 +224,7 @@ if __name__ == '__main__' and not TestingThings:
             if Training_Parameters['Optimiser'] == 'SGD' : optimizer = optim.SGD (model.parameters(), lr=Training_Parameters['LR'], momentum=0.9)
             gamma = 0.001**(1/30) if Training_Parameters['epochs']>30 else 0.001**(1/Training_Parameters['epochs']) # Reduce the LR by factor of 1000 over 30 epochs or less
             print(f'Gamma in LR Reduction: {gamma}')
-            scheduler = torch.optim.lr_scheduler.ExponentialLR    (optimiser, gamma = gamma, last_epoch=-1, verbose=False)
+            scheduler = torch.optim.lr_scheduler.ExponentialLR    (optimiser, gamma = gamma, last_epoch=-1)
 
 
             print('Training model: '     ,model.Name)
