@@ -851,12 +851,12 @@ class Model_SDP_Conv2d_Simple(nn.Module):
 
         self.OutWeights = torch.tensor([1,1])
 
-    def forward(self,Graph,Aux=None):
+    def forward(self,Main,Aux=None):
         
         # Unpack the Graph Datata to Main
         device = self.Dense1.weight.device
         Main = Main[0]
-        
+        Main = Main.to(device)
         # Process the Data
         Main = self.Conv_Activation(self.conv0(Main))
         Main = self.Conv_Activation(self.Conv1(Main))
