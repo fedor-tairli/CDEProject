@@ -803,3 +803,105 @@ class Model_SDP_Conv3d_JustPhi(Model_SDP_Conv3d):
         super(Model_SDP_Conv3d_JustPhi, self).__init__(in_main_channels=in_main_channels, N_kernels=N_kernels, N_dense_nodes=N_dense_nodes, **kwargs)
         self.OutWeights = torch.tensor([0, 1])
 
+
+
+class Model_SDP_Conv2d_Simple(nn.Module):
+
+    Name = 'Model_SDP_Conv2d_Simple'
+    Description = '''
+    Convolutional Neural Network for SDP Reconstruction
+    Uses standard Conv2d Layers
+    Reconstruction is done for one telescope
+    No pooling is done, because it ruins the resolution
+    '''
+
+    def __init__(self,in_main_channels = (1,), N_kernels = 32, N_dense_nodes = 128, **kwargs):
+        # only one Main is expected
+        assert len(in_main_channels) == 1, 'Only one Main Channel is expected'
+        in_main_channels = in_main_channels[0]
+        self.kwargs = kwargs
+        dropout = kwargs['dropout'] if 'dropout' in kwargs else 0.2
+        
+        super(Model_SDP_Conv2d_Simple, self).__init__()
+
+        # Activation Function
+        self.Conv_Activation  = nn.LeakyReLU()
+        self.Dense_Activation = nn.ReLU()
+        self.Angle_Activation = nn.Tanh()
+        self.Conv_Dropout     = nn.Dropout3d(dropout)
+        self.Dense_Dropout    = nn.Dropout(dropout)
+
+
+        self.conv0 = nn.Conv2d(in_channels=in_main_channels, out_channels=N_kernels, kernel_size=3, padding = (1,0) , stride = 1) # Out=> (N, N_kernels, 20, 20)
+        self.Conv1 = nn.Conv2d(in_channels=N_kernels, out_channels=N_kernels, kernel_size=3, padding=1, stride=1) # Out=> (N, N_kernels, 20, 20)
+        self.Conv2 = nn.Conv2d(in_channels=N_kernels, out_channels=N_kernels, kernel_size=3, padding=1, stride=1)
+        self.Conv3 = nn.Conv2d(in_channels=N_kernels, out_channels=N_kernels, kernel_size=3, padding=1, stride=1)
+
+        self.Dense1 = nn.Linear(N_kernels*20*20, N_dense_nodes)
+        self.Dense2 = nn.Linear(N_dense_nodes, N_dense_nodes)
+        self.Dense3 = nn.Linear(N_dense_nodes, N_dense_nodes)
+
+        self.Theta1 = nn.Linear(N_dense_nodes,N_dense_nodes)
+        self.Theta2 = nn.Linear(N_dense_nodes,N_dense_nodes//2)
+        self.Theta3 = nn.Linear(N_dense_nodes//2,1)
+
+        self.Phi1   = nn.Linear(N_dense_nodes,N_dense_nodes)
+        self.Phi2   = nn.Linear(N_dense_nodes,N_dense_nodes//2)
+        self.Phi3   = nn.Linear(N_dense_nodes//2,1)
+
+        self.OutWeights = torch.tensor([1,1])
+
+    def forward(self,Graph,Aux=None):
+        
+        # Unpack the Graph Datata to Main
+        device = self.Dense1.weight.device
+        Main = Main[0]
+        
+        # Process the Data
+        Main = self.Conv_Activation(self.conv0(Main))
+        Main = self.Conv_Activation(self.Conv1(Main))
+        Main = self.Conv_Activation(self.Conv2(Main))
+        Main = self.Conv_Activation(self.Conv3(Main))
+
+        # Flatten the output
+        Main = Main.view(Main.shape[0],-1)
+        
+        # Dense and Output Layers
+        Main = self.Dense_Activation(self.Dense1(Main))
+        Main = self.Dense_Dropout(Main)
+        Main = self.Dense_Activation(self.Dense2(Main))
+        Main = self.Dense_Dropout(Main)
+        Main = self.Dense_Activation(self.Dense3(Main))
+
+        Theta = self.Dense_Activation(self.Theta1(Main))
+        Theta = self.Dense_Activation(self.Theta2(Theta))
+        Theta = self.Angle_Activation(self.Theta3(Theta))
+
+        Phi   = self.Dense_Activation(self.Phi1(Main))
+        Phi   = self.Dense_Activation(self.Phi2(Phi))
+        Phi   = self.Angle_Activation(self.Phi3(Phi))
+        
+        Output = torch.cat([Theta,Phi],dim=1)* self.OutWeights.to(device)
+        return Output
+
+class Model_SDP_Conv2d_Simple_JustTheta(Model_SDP_Conv2d_Simple):
+    Name = 'Model_SDP_Conv2d_Simple_JustTheta'
+    Description = '''
+    Convolutional Neural Network for SDP Reconstruction
+    Only the Theta is learned
+    '''
+
+    def __init__(self, in_main_channels=(1,), N_kernels=32, N_dense_nodes=128, **kwargs):
+        super(Model_SDP_Conv2d_Simple_JustTheta, self).__init__(in_main_channels=in_main_channels, N_kernels=N_kernels, N_dense_nodes=N_dense_nodes, **kwargs)
+        self.OutWeights = torch.tensor([1, 0])
+        
+class Model_SDP_Conv2d_Simple_JustPhi(Model_SDP_Conv2d_Simple):
+    Name = 'Model_SDP_Conv2d_Simple_JustPhi'
+    Description = '''
+    Convolutional Neural Network for SDP Reconstruction
+    Only the Phi is learned
+    '''
+
+    def __init__(self, in_main_channels=(1,), N_kernels=32, N_dense_nodes=128, **kwargs):
+        super(Model_SDP_Conv2d_Simple_JustPhi, self).__init__(in_main_channels=in_main_channels, N_kernels=N_kernels, N_dense_nodes=N_dense_nodes, **kwargs)
+        self.OutWeights = torch.tensor([0, 1])
