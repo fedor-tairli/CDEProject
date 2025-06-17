@@ -469,7 +469,7 @@ def Main_Conv2d_Grid_Charge_and_Time_DropPhiBehind(Dataset,ProcessingDataset):
     Main = Main[Bad_Phi_Mask]
     IDsList = torch.tensor(IDsList)[Bad_Phi_Mask]   
     IDsList = tuple(IDsList.tolist()) # Move the IDsList to a tuple
-    
+
     # Make the Cut on t
     # Pass the data to the ProcessingDataset
     if ProcessingDataset is None:
@@ -479,3 +479,59 @@ def Main_Conv2d_Grid_Charge_and_Time_DropPhiBehind(Dataset,ProcessingDataset):
         ProcessingDataset._EventIds = IDsList
     else:
         assert ProcessingDataset._EventIds == IDsList, 'Event IDs do not match'
+
+
+def Aux_Descriptors_DropPhiBehind(Dataset, ProcessingDataset):
+    ''' Will just provide some event descriptors for dependence inspection
+    Values are : 'Event_Class', 'Primary', 'Gen_LogE', 'Gen_CosZenith', 'Gen_Xmax','Gen_Chi0', 'Gen_Rp'
+    '''
+
+    IDsList = ()
+    Event_Class   = torch.zeros(len(Dataset),1)
+    Primary       = torch.zeros(len(Dataset),1)
+    Gen_LogE      = torch.zeros(len(Dataset),1)
+    Gen_CosZenith = torch.zeros(len(Dataset),1)
+    Gen_Xmax      = torch.zeros(len(Dataset),1)
+    Gen_Chi0      = torch.zeros(len(Dataset),1)
+    Gen_Rp        = torch.zeros(len(Dataset),1)
+    Gen_Phis      = torch.zeros(len(Dataset),1)
+
+    for i, Event in enumerate(Dataset):
+        if i%100 ==0: print(f'    Processing Aux {i} / {len(Dataset)}',end='\r')
+        ID = (Event.get_value('EventID_1/2').int()*10000 + Event.get_value('EventID_2/2').int()%10000).item()
+        IDsList += (ID,)
+
+        # Get the values
+        Event_Class[i]   = Event.get_value('Event_Class')
+        Primary[i]       = Event.get_value('Primary')
+        Gen_LogE[i]      = Event.get_value('Gen_LogE')
+        Gen_CosZenith[i] = Event.get_value('Gen_CosZenith')
+        Gen_Xmax[i]      = Event.get_value('Gen_Xmax')
+        Gen_Chi0[i]      = Event.get_value('Gen_Chi0')
+        Gen_Rp[i]        = Event.get_value('Gen_Rp')
+        Gen_Phis[i]      = Event.get_value('Gen_SDPPhi')
+
+    Bad_Phi_Mask = (Gen_Phis < torch.pi/2) & (Gen_Phis > -torch.pi/2) # These are behind
+    Bad_Phi_Mask = ~Bad_Phi_Mask # Invert the mask to
+    # keep only the events where shower lands in front of the camera
+    Event_Class   = Event_Class[Bad_Phi_Mask]
+    Primary       = Primary[Bad_Phi_Mask]
+    Gen_LogE      = Gen_LogE[Bad_Phi_Mask]
+    Gen_CosZenith = Gen_CosZenith[Bad_Phi_Mask]
+    Gen_Xmax      = Gen_Xmax[Bad_Phi_Mask]
+    Gen_Chi0      = Gen_Chi0[Bad_Phi_Mask]
+    Gen_Rp        = Gen_Rp[Bad_Phi_Mask]
+    IDsList = torch.tensor(IDsList)[Bad_Phi_Mask]
+    IDsList = tuple(IDsList.tolist()) # Move the IDsList to a tuple
+    
+    
+    if ProcessingDataset is None:
+        return torch.stack(Event_Class,Primary,Gen_LogE,Gen_CosZenith,Gen_Xmax,Gen_Chi0,Gen_Rp)
+    else:
+        ProcessingDataset._Aux = torch.stack((Event_Class,Primary,Gen_LogE,Gen_CosZenith,Gen_Xmax,Gen_Chi0,Gen_Rp),dim=1)
+        ProcessingDataset.Aux_Keys = ('Event_Class','Primary','LogE','CosZenith','Xmax','Chi0','Rp')
+        ProcessingDataset.Aux_Units = ('','','','','g/cm^2','rad','m')
+        if ProcessingDataset._EventIds is None:
+            ProcessingDataset._EventIds = IDsList
+        else:
+            assert ProcessingDataset._EventIds == IDsList, 'EventIDs do not match'
