@@ -30,11 +30,11 @@ def Clean_Data_DoNothing(Dataset):
 import SDP_Conv_DataGen
 
 # Data Generation Functions
-Pass_Main     = SDP_Conv_DataGen.Main_Conv2d_Grid_Charge_Status4Only
+Pass_Main     = SDP_Conv_DataGen.Main_Conv2d_Grid_Charge_and_Time_DropPhiBehind
 
 Pass_Aux      = SDP_Conv_DataGen.Aux_Descriptors
 
-Pass_Truth    = SDP_Conv_DataGen.Truth_Just_SDP_single
+Pass_Truth    = SDP_Conv_DataGen.Truth_Just_SDP_single_DropPhiBehind
 
 Pass_Rec      = Pass_Rec_DoNothing
 

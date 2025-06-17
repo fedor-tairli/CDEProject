@@ -36,4 +36,4 @@ Max_materialize = 3
 #Maximum possible  max_materialise is 6
 priority = 20
 
-Queue N in 0,1,2
+Queue N in 0,
