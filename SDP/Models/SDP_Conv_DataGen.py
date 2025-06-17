@@ -379,7 +379,7 @@ def Truth_Just_SDP_single_DropPhiBehind(Dataset,ProcessingDataset):
     print()
 
     IDsList = torch.tensor(IDsList)
-    Bad_Phi_Mask = (Gen_SDPPhi < torch.pi/2) & (Gen_SDPPhi > -torch.pi/2) # These are behind
+    Bad_Phi_Mask = (Gen_SDPPhi <= torch.pi/2) & (Gen_SDPPhi >= -torch.pi/2) # These are behind
     Bad_Phi_Mask = ~Bad_Phi_Mask # Invert the mask to keep only the events where shower lands in front of the camera
     Gen_SDPPhi   = Gen_SDPPhi[Bad_Phi_Mask]
     Gen_SDPTheta = Gen_SDPTheta[Bad_Phi_Mask]
@@ -464,7 +464,7 @@ def Main_Conv2d_Grid_Charge_and_Time_DropPhiBehind(Dataset,ProcessingDataset):
         Main[i,1,Xs,Ys] = Time
         Gen_Phis[i] = Event.get_value('Gen_SDPPhi')
 
-    Bad_Phi_Mask = (Gen_Phis < torch.pi/2) & (Gen_Phis > -torch.pi/2) # These are behind
+    Bad_Phi_Mask = (Gen_Phis <= torch.pi/2) & (Gen_Phis >= -torch.pi/2) # These are behind
     Bad_Phi_Mask = ~Bad_Phi_Mask # Invert the mask to keep only the events where shower lands in front of the camera
     Main = Main[Bad_Phi_Mask]
     IDsList = torch.tensor(IDsList)[Bad_Phi_Mask]   
@@ -511,7 +511,7 @@ def Aux_Descriptors_DropPhiBehind(Dataset, ProcessingDataset):
         Gen_Rp[i]        = Event.get_value('Gen_Rp')
         Gen_Phis[i]      = Event.get_value('Gen_SDPPhi')
 
-    Bad_Phi_Mask = (Gen_Phis < torch.pi/2) & (Gen_Phis > -torch.pi/2) # These are behind
+    Bad_Phi_Mask = (Gen_Phis <= torch.pi/2) & (Gen_Phis >= -torch.pi/2) # These are behind
     Bad_Phi_Mask = ~Bad_Phi_Mask # Invert the mask to
     # keep only the events where shower lands in front of the camera
     Event_Class   = Event_Class[Bad_Phi_Mask]
@@ -523,7 +523,7 @@ def Aux_Descriptors_DropPhiBehind(Dataset, ProcessingDataset):
     Gen_Rp        = Gen_Rp[Bad_Phi_Mask]
     IDsList = torch.tensor(IDsList)[Bad_Phi_Mask]
     IDsList = tuple(IDsList.tolist()) # Move the IDsList to a tuple
-    
+
     
     if ProcessingDataset is None:
         return torch.stack(Event_Class,Primary,Gen_LogE,Gen_CosZenith,Gen_Xmax,Gen_Chi0,Gen_Rp)
