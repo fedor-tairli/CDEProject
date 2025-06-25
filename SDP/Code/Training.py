@@ -115,7 +115,7 @@ if __name__ == '__main__' and not TestingThings:
     NeedTraces           = True
     LoadModel            = False
     DoNotTrain           = False
-    DatasetName          = 'SDP_Conv2d_OnlyGoodPhi' #No / or .pt JUST NAME, eg GraphStructure  Use None to save as default
+    DatasetName          = 'SDP_Conv2d' #No / or .pt JUST NAME, eg GraphStructure  Use None to save as default
 
 
     if DoNotTrain: assert RecalculateDataset, 'Recalculate Dataset must be True if DoNotTrain is True'
@@ -180,7 +180,7 @@ if __name__ == '__main__' and not TestingThings:
 
         # Model Parameters 
         Model_Parameters = {
-            'in_main_channels': (162,),
+            'in_main_channels': (2,),
             'in_node_channels': 5   ,
             'in_edge_channels': 2   ,
             'in_aux_channels' : 0   ,

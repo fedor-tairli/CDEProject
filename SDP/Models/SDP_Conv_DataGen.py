@@ -78,7 +78,7 @@ def Truth_Just_SDP_single(Dataset,ProcessingDataset):
     Does not use atan2 as unnormalisation (<- what single means)
     '''
     IDsList = ()
-    Offsets = {1:44.45/180*torch.pi,2:-89.87/180*torch.pi,3:132.83/180*torch.pi}#,4:15/180*torch.pi,5:45/180*torch.pi,6:75/180*torch.pi}
+    Offsets = {1:44.45/180*torch.pi,2:89.87/180*torch.pi,3:132.83/180*torch.pi}#,4:15/180*torch.pi,5:45/180*torch.pi,6:75/180*torch.pi}
 
     Gen_SDPTheta = torch.zeros(len(Dataset))
     Gen_SDPPhi   = torch.zeros(len(Dataset))
@@ -141,7 +141,7 @@ def Truth_Just_SDP_single_InvertedBehind(Dataset,ProcessingDataset):
     Inverting the Normal Vectors for events where shower lands behind camera
     '''
     IDsList = ()
-    Offsets = {1:44.45/180*torch.pi,2:-89.87/180*torch.pi,3:132.83/180*torch.pi}#,4:15/180*torch.pi,5:45/180*torch.pi,6:75/180*torch.pi}
+    Offsets = {1:44.45/180*torch.pi,2:89.87/180*torch.pi,3:132.83/180*torch.pi}#,4:15/180*torch.pi,5:45/180*torch.pi,6:75/180*torch.pi}
     Offsets = {1:(43.92 -89.34)/180*torch.pi, 2:0, 3:(132.30 -89.34)/180*torch.pi}
 
     Gen_SDPTheta = torch.zeros(len(Dataset))
@@ -352,7 +352,7 @@ def Truth_Just_SDP_single_DropPhiBehind(Dataset,ProcessingDataset):
     Drops the events where shower lands behind camera
     '''
     IDsList = ()
-    Offsets = {1:44.45/180*torch.pi,2:-89.87/180*torch.pi,3:132.83/180*torch.pi}#,4:15/180*torch.pi,5:45/180*torch.pi,6:75/180*torch.pi}
+    Offsets = {1:44.45/180*torch.pi,2:89.87/180*torch.pi,3:132.83/180*torch.pi}#,4:15/180*torch.pi,5:45/180*torch.pi,6:75/180*torch.pi}
 
     Gen_SDPTheta = torch.zeros(len(Dataset))
     Gen_SDPPhi   = torch.zeros(len(Dataset))
@@ -494,7 +494,7 @@ def Aux_Descriptors_DropPhiBehind(Dataset, ProcessingDataset):
     Gen_Xmax      = torch.zeros(len(Dataset),1)
     Gen_Chi0      = torch.zeros(len(Dataset),1)
     Gen_Rp        = torch.zeros(len(Dataset),1)
-    Gen_Phis      = torch.zeros(len(Dataset),1)
+    Gen_Phis      = torch.zeros(len(Dataset))
 
     for i, Event in enumerate(Dataset):
         if i%100 ==0: print(f'    Processing Aux {i} / {len(Dataset)}',end='\r')
@@ -535,3 +535,9 @@ def Aux_Descriptors_DropPhiBehind(Dataset, ProcessingDataset):
             ProcessingDataset._EventIds = IDsList
         else:
             assert ProcessingDataset._EventIds == IDsList, 'EventIDs do not match'
+
+
+# def Truth_SDP_via3vector(Dataset,ProcessingDataset):
+#     ''' The truth is normalsed via 3-vector'''
+
+#     IDsList = ()
