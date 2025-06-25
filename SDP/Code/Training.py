@@ -160,12 +160,14 @@ if __name__ == '__main__' and not TestingThings:
         from TrainingModule import Train , Tracker
         from Model_SDP import Loss as Loss_function
         from Model_SDP import validate, metric
-        from Model_SDP import Model_SDP_Conv_Residual_SingleTel_NoPool
+        from Model_SDP import Model_SDP_Conv_Residual_SingleTel_NoPool , Model_SDP_Conv_Residual_SingleTel_NoPool_JustTheta, Model_SDP_Conv_Residual_SingleTel_NoPool_JustPhi, Model_SDP_Conv_Residual_SingleTel_NoPool_JustCEDist
         
 
         
         Models = [
             Model_SDP_Conv_Residual_SingleTel_NoPool,
+            Model_SDP_Conv_Residual_SingleTel_NoPool_JustTheta,
+            Model_SDP_Conv_Residual_SingleTel_NoPool_JustPhi,
         ]
         
         if SelectNetwork is not None:
