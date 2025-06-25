@@ -111,7 +111,7 @@ if __name__ == '__main__' and not TestingThings:
     Use_Test_Set         = False
     Use_All_Sets         = True
     Dataset_RandomIter   = True
-    RecalculateDataset   = True
+    RecalculateDataset   = False
     NeedTraces           = True
     LoadModel            = False
     DoNotTrain           = False
