@@ -217,9 +217,11 @@ if __name__ == '__main__' and not TestingThings:
             print('Model Description')
             print(model.Description)
             print()
-
-            if Training_Parameters['Optimiser'] == 'Adam': optimiser = optim.Adam(model.parameters(), lr=Training_Parameters['LR'])
+            # set default optimiser and overwrite if needed (basically should always be Adam)
+            optimiser = optim.Adam(model.parameters(), lr=Training_Parameters['LR'])
             if Training_Parameters['Optimiser'] == 'SGD' : optimizer = optim.SGD (model.parameters(), lr=Training_Parameters['LR'], momentum=0.9)
+            
+
             gamma = 0.001**(1/30) if Training_Parameters['epochs']>30 else 0.001**(1/Training_Parameters['epochs']) # Reduce the LR by factor of 1000 over 30 epochs or less
             print(f'Gamma in LR Reduction: {gamma}')
             scheduler = torch.optim.lr_scheduler.ExponentialLR(optimiser, gamma = gamma, last_epoch=-1)

@@ -6,6 +6,7 @@ import sys
 import torch 
 import torch.nn as nn
 import torch.nn.functional as F
+from typing import Union, Tuple # needed for the expected/default values of the functions
 
 # from time import time
 # from   torch_geometric.nn import GCNConv, TAGConv,GATv2Conv
@@ -657,7 +658,7 @@ class Model_SDP_Conv_Residual_SingleTel_NoPool_JustPhi(Model_SDP_Conv_Residual_S
 
 
 class Conv_Skip_Block_3d(nn.Module):
-    def __init__(self, in_channels, N_kernels, activation_function, kernel_size=3, padding=1, stride=1, dropout=0.0):
+    def __init__(self, in_channels, N_kernels, activation_function, kernel_size:Union[int,Tuple[int,int,int]]=3, padding:Union[int,Tuple[int,int,int]]=1, stride=1, dropout=0.0):
         assert in_channels == N_kernels, 'Input and Output Channels should be the same'
         super(Conv_Skip_Block_3d, self).__init__()
         self.conv1 = nn.Conv3d(in_channels, N_kernels, kernel_size=kernel_size, padding=padding, stride=stride)
