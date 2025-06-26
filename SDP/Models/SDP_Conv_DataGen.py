@@ -537,7 +537,83 @@ def Aux_Descriptors_DropPhiBehind(Dataset, ProcessingDataset):
             assert ProcessingDataset._EventIds == IDsList, 'EventIDs do not match'
 
 
-# def Truth_SDP_via3vector(Dataset,ProcessingDataset):
-#     ''' The truth is normalsed via 3-vector'''
 
-#     IDsList = ()
+
+
+## Some functions for the Truth Normalisation Below
+# Some function needed for the next part
+def spherical_to_cartesian(theta, phi):
+    return torch.stack([
+        torch.sin(theta) * torch.cos(phi),
+        torch.sin(theta) * torch.sin(phi),
+        torch.cos(theta)
+    ], dim=0)
+
+def cartesian_to_spherical(x, y, z):
+    r = torch.sqrt(x**2 + y**2 + z**2)
+    theta = torch.acos(z / r)  # polar angle
+    phi = torch.atan2(y, x)    # azimuthal angle
+    return theta, phi
+
+
+def Unnormalise_3vector(Truth):
+    return Truth   # Not Sure how to approach this, going to do this in post
+
+
+def Truth_SDP_via3vector(Dataset,ProcessingDataset):
+    ''' The truth is normalsed via 3-vector'''
+
+    IDsList = ()
+    Offsets = {1:44.45/180*torch.pi,2:89.87/180*torch.pi,3:132.83/180*torch.pi}#,4:15/180*torch.pi,5:45/180*torch.pi,6:75/180*torch.pi}
+
+    Gen_SDPTheta = torch.zeros(len(Dataset))
+    Gen_SDPPhi   = torch.zeros(len(Dataset))
+    Rec_SDPTheta = torch.zeros(len(Dataset))
+    Rec_SDPPhi   = torch.zeros(len(Dataset))
+    
+    SelectedTelescopes = torch.zeros(len(Dataset))
+    for i,Event in enumerate(Dataset):
+        # ID Checks
+        ID = (Event.get_value('EventID_1/2').int()*10000 + Event.get_value('EventID_2/2').int()%10000).item()
+        IDsList += (ID,)
+
+        if i%100 == 0:
+            print(f'    Processing Truth {i} / {len(Dataset)}',end='\r')
+        TelIDs        = Event.get_pixel_values('TelID')
+        EyeIDs        = Event.get_pixel_values('EyeID')
+        SelectedTelescopeID   = TelIDs.int().bincount().argmax()
+        
+        SelectedTelescopes[i] = SelectedTelescopeID
+        Gen_SDPPhi  [i]       = Event.get_value('Gen_SDPPhi')
+        Gen_SDPTheta[i]       = Event.get_value('Gen_SDPTheta')
+        Rec_SDPPhi  [i]       = Event.get_value('Rec_SDPPhi')
+        Rec_SDPTheta[i]       = Event.get_value('Rec_SDPTheta')
+    print()
+
+    
+    for i in range(1,4): # Apply offsets
+        print(f'Sum of SelectedTelescopes == {i} is {torch.sum(SelectedTelescopes == i)}')
+        Gen_SDPPhi[SelectedTelescopes == i] -= Offsets[i]
+        Rec_SDPPhi[SelectedTelescopes == i] -= Offsets[i]
+
+    # Compute the Cartesian Variant
+    Gen_X,Gen_Y,Gen_Z = spherical_to_cartesian(Gen_SDPTheta,Gen_SDPPhi)
+    Rec_X,Rec_Y,Rec_Z = spherical_to_cartesian(Rec_SDPTheta,Rec_SDPPhi)
+
+
+
+    if ProcessingDataset is None:
+        return torch.stack((Gen_X,Gen_Y,Gen_Z),dim=1), torch.stack((Rec_X,Rec_Y,Rec_Z),dim=1)
+    ProcessingDataset._Truth = torch.stack((Gen_X,Gen_Y,Gen_Z),dim=1)
+    ProcessingDataset._Rec   = torch.stack((Rec_X,Rec_Y,Rec_Z),dim=1)
+
+    ProcessingDataset.Unnormalise_Truth = Unnormalise_SDP
+    ProcessingDataset.Truth_Keys = ('X','Y','Z')
+    ProcessingDataset.Truth_Units =('','','')
+    if ProcessingDataset._EventIds is None:
+        ProcessingDataset._EventIds = IDsList
+    else:
+        assert ProcessingDataset._EventIds == IDsList, 'Event IDs do not match'
+
+
+

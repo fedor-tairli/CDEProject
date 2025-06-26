@@ -111,11 +111,11 @@ if __name__ == '__main__' and not TestingThings:
     Use_Test_Set         = False
     Use_All_Sets         = True
     Dataset_RandomIter   = True
-    RecalculateDataset   = False
+    RecalculateDataset   = True
     NeedTraces           = True
     LoadModel            = False
     DoNotTrain           = False
-    DatasetName          = 'SDP_Conv2d' #No / or .pt JUST NAME, eg GraphStructure  Use None to save as default
+    DatasetName          = 'SDP_Conv2d_via3Vector' #No / or .pt JUST NAME, eg GraphStructure  Use None to save as default
 
 
     if DoNotTrain: assert RecalculateDataset, 'Recalculate Dataset must be True if DoNotTrain is True'
@@ -158,16 +158,14 @@ if __name__ == '__main__' and not TestingThings:
     if not DoNotTrain:
         # import model
         from TrainingModule import Train , Tracker
-        from Model_SDP import Loss as Loss_function
-        from Model_SDP import validate, metric
-        from Model_SDP import Model_SDP_Conv_Residual_SingleTel_NoPool , Model_SDP_Conv_Residual_SingleTel_NoPool_JustTheta, Model_SDP_Conv_Residual_SingleTel_NoPool_JustPhi, Model_SDP_Conv_Residual_SingleTel_NoPool_JustCEDist
+        from Model_SDP_3vector import Loss as Loss_function
+        from Model_SDP_3vector import validate, metric
+        from Model_SDP_3vector import Model_SDP_3vector
         
 
         
         Models = [
-            Model_SDP_Conv_Residual_SingleTel_NoPool,
-            Model_SDP_Conv_Residual_SingleTel_NoPool_JustTheta,
-            Model_SDP_Conv_Residual_SingleTel_NoPool_JustPhi,
+            Model_SDP_3vector
         ]
         
         if SelectNetwork is not None:
