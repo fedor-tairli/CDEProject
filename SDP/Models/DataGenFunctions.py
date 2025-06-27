@@ -34,7 +34,7 @@ Pass_Main     = SDP_Conv_DataGen.Main_Conv2d_Grid_Charge_and_Time
 
 Pass_Aux      = SDP_Conv_DataGen.Aux_Descriptors
 
-Pass_Truth    = SDP_Conv_DataGen.Truth_SDP_via3vector
+Pass_Truth    = SDP_Conv_DataGen.Truth_SDP_double
 
 Pass_Rec      = Pass_Rec_DoNothing
 

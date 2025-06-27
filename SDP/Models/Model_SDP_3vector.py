@@ -67,7 +67,7 @@ def metric(model,Dataset,device,keys=['X','Y','Z'],BatchSize = 256):
     '''
     Special Metric for SDP normalised via a 3vector
     '''
-    assert keys == ['X','Y','Z'], 'Only X,Y,Z keys are supported for SDP 3vector normalisation'
+    
     
     # make sure the Dataset State is Val
     Dataset.State = 'Val'

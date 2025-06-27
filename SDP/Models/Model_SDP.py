@@ -86,8 +86,14 @@ def metric(model,Dataset,device,keys=['SDPTheta','SDPPhi'],BatchSize = 256):
     Truths = torch.cat(Truths,dim=0).cpu()
     Preds  = Dataset.Unnormalise_Truth(Preds )
     Truths = Dataset.Unnormalise_Truth(Truths)
+    # Check for SDP_double definition, 
+    if "SDPTheta_c" in Dataset.Truth_Keys and "SDPPhi_c" in Dataset.Truth_Keys:
+        # The Unnormalise_Truth will return SDPTheta and SDPPhi values, not c/s of either
+        keys  = ['SDPTheta','SDPPhi']
+        Units = ['rad','rad']  # Default Units for SDPTheta and SDPPhi
 
-    Units = Dataset.Truth_Units
+    else:
+        Units = Dataset.Truth_Units
     metrics = {}
     for i,key in enumerate(keys):
         if Units[i] == 'rad':
@@ -906,3 +912,122 @@ class Model_SDP_Conv2d_Simple_JustPhi(Model_SDP_Conv2d_Simple):
     def __init__(self, in_main_channels=(1,), N_kernels=32, N_dense_nodes=128, **kwargs):
         super(Model_SDP_Conv2d_Simple_JustPhi, self).__init__(in_main_channels=in_main_channels, N_kernels=N_kernels, N_dense_nodes=N_dense_nodes, **kwargs)
         self.OutWeights = torch.tensor([0, 1])
+
+
+
+
+class Model_SDP_Double_Conv2d(nn.Module):
+    Name = 'Model_SDP_Double_Conv2d'
+    Description = '''
+    Model Follows the same structure as the Model_SDP_Conv_Residual_SingleTel_NoPool
+    Except works with the double definition of SDP - Theeta_c|Theta_s|Phi_c|Phi_s
+
+    --
+    Convolutional Neural Network for SDP Reconstruction
+    Uses standard Conv2d Layers in blocks with residual connections
+    Reconstruction is done for one telescope
+    This model does not do max pooling
+    '''
+
+    def __init__(self,in_main_channels = (2,), N_kernels = 64, N_dense_nodes = 256, **kwargs):
+        # only one Main is expected
+        assert len(in_main_channels) == 1, 'Only one Main Channel is expected'
+        in_main_channels = in_main_channels[0]
+        self.kwargs = kwargs
+        dropout = kwargs['dropout'] if 'dropout' in kwargs else 0.2
+        
+        super(Model_SDP_Double_Conv2d, self).__init__()
+
+        # Activation Function
+        self.Conv_Activation  = nn.LeakyReLU()
+        self.Dense_Activation = nn.ReLU()
+        self.Angle_Activation = nn.Tanh()
+        self.Conv_Dropout     = nn.Dropout2d(dropout)
+        self.Dense_Dropout    = nn.Dropout(dropout)
+        
+        # Graph Convolution Layers # Input should be (N, in_main_channels, 20, 22) for three telescopes
+        self.conv_0_large = nn.Conv2d(in_main_channels, N_kernels, kernel_size=5, padding=(2,1)) # Out=> (N, N_kernels, 20, 20)
+        self.conv_0_small = nn.Conv2d(in_main_channels, N_kernels, kernel_size=3, padding=(1,0)) # Out=> (N, N_kernels, 20, 22)
+        self.conv_0       = nn.Conv2d(N_kernels*2     , N_kernels, kernel_size=3, padding=1    ) # Out=> (N, N_kernels, 20, 22)
+        self.BN_0         = nn.BatchNorm2d(N_kernels)
+        self.conv_1 = Conv_Skip_Block(N_kernels, N_kernels, self.Conv_Activation) # Out=> (N, N_kernels, 20, 20)
+        self.BN_1   = nn.BatchNorm2d(N_kernels)
+        # Pool here to (N, N_kernels, 10, 10)
+        self.conv_2 = Conv_Skip_Block(N_kernels, N_kernels, self.Conv_Activation) # Out=> (N, N_kernels, 10, 10)
+        self.BN_2   = nn.BatchNorm2d(N_kernels)
+        # Pooling here to (N, N_kernels, 5, 5)
+        self.conv_3 = Conv_Skip_Block(N_kernels, N_kernels, self.Conv_Activation)
+        self.BN_3   = nn.BatchNorm2d(N_kernels)
+
+        self.conv_4 = Conv_Skip_Block(N_kernels, N_kernels, self.Conv_Activation)
+        self.BN_4   = nn.BatchNorm2d(N_kernels)
+
+        self.conv_5 = Conv_Skip_Block(N_kernels, N_kernels, self.Conv_Activation)
+        self.BN_5   = nn.BatchNorm2d(N_kernels)
+
+
+        # Reshape to (N, N_kernels*5*5)
+        # Dense Layers
+        self.Dense1 = nn.Linear(N_kernels*20*20, N_dense_nodes)
+        self.Dense2 = nn.Linear(N_dense_nodes, N_dense_nodes)
+        self.Dense3 = nn.Linear(N_dense_nodes, N_dense_nodes)
+
+        # Output Layer
+        self.SDPTheta1 = nn.Linear(N_dense_nodes,N_dense_nodes)
+        self.SDPTheta2 = nn.Linear(N_dense_nodes,N_dense_nodes//2)
+        self.SDPTheta3 = nn.Linear(N_dense_nodes//2,2)
+
+        self.SDPPhi1   = nn.Linear(N_dense_nodes,N_dense_nodes)
+        self.SDPPhi2   = nn.Linear(N_dense_nodes,N_dense_nodes//2)  
+        self.SDPPhi3   = nn.Linear(N_dense_nodes//2,2)
+
+        self.OutWeights = torch.tensor([1,1,1,1])  # For Theta_c, Theta_s, Phi_c, Phi_s
+
+    def forward(self,Main,Aux):
+        device = self.Dense1.weight.device
+        # Only 1 main is expected
+        assert len(Main) == 1, 'Only one Main is expected'
+        Main = Main[0].to(device)
+        
+
+        Main_L = self.Conv_Activation(self.conv_0_large(Main))
+        Main_S = self.Conv_Activation(self.conv_0_small(Main))
+        
+        Main = torch.cat([Main_L,Main_S],dim=1)
+        Main = self.Conv_Dropout(self.Conv_Activation(self.conv_0(Main)))
+        Main = self.BN_0(Main)
+        Main = self.Conv_Dropout(self.conv_1(Main))
+        Main = self.BN_1(Main)
+        
+        Main = self.Conv_Dropout(self.conv_2(Main))
+        Main = self.BN_2(Main)
+        
+        Main = self.conv_3(Main)
+        Main = self.BN_3(Main)
+
+        Main = self.Conv_Dropout(self.conv_4(Main))
+        Main = self.BN_4(Main)
+
+        Main = self.Conv_Dropout(self.conv_5(Main))
+        Main = self.BN_5(Main)
+
+        # Flatten the output
+        Main = Main.view(Main.shape[0],-1)
+        # Dense and Output Layers
+        Main = self.Dense_Activation(self.Dense1(Main))
+        Main = self.Dense_Activation(self.Dense2(Main))
+        Main = self.Dense_Activation(self.Dense3(Main))
+
+        Theta = self.Dense_Activation(self.SDPTheta1(Main))
+        Theta = self.Dense_Activation(self.SDPTheta2(Theta))
+        Theta = self.Angle_Activation(self.SDPTheta3(Theta))
+
+        Phi   = self.Dense_Activation(self.SDPPhi1(Main))
+        Phi   = self.Dense_Activation(self.SDPPhi2(Phi))
+        Phi   = self.Angle_Activation(self.SDPPhi3(Phi))
+
+        Output = torch.cat([Theta,Phi],dim=1)
+        Output = Output*self.OutWeights.to(device)
+
+        return Output 
+

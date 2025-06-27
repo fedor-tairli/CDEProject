@@ -111,11 +111,11 @@ if __name__ == '__main__' and not TestingThings:
     Use_Test_Set         = False
     Use_All_Sets         = True
     Dataset_RandomIter   = True
-    RecalculateDataset   = False
+    RecalculateDataset   = True
     NeedTraces           = True
     LoadModel            = False
     DoNotTrain           = False
-    DatasetName          = 'SDP_Conv2d_via3Vector' #No / or .pt JUST NAME, eg GraphStructure  Use None to save as default
+    DatasetName          = 'SDP_Double_Conv2d' #No / or .pt JUST NAME, eg GraphStructure  Use None to save as default
 
 
     if DoNotTrain: assert RecalculateDataset, 'Recalculate Dataset must be True if DoNotTrain is True'
@@ -158,14 +158,14 @@ if __name__ == '__main__' and not TestingThings:
     if not DoNotTrain:
         # import model
         from TrainingModule import Train , Tracker
-        from Model_SDP_3vector import Loss as Loss_function
-        from Model_SDP_3vector import validate, metric
-        from Model_SDP_3vector import Model_SDP_3vector
+        from Model_SDP import Loss as Loss_function
+        from Model_SDP import validate, metric
+        from Model_SDP import Model_SDP_Double_Conv2d
         
 
         
         Models = [
-            Model_SDP_3vector
+            Model_SDP_Double_Conv2d
         ]
         
         if SelectNetwork is not None:
@@ -184,9 +184,9 @@ if __name__ == '__main__' and not TestingThings:
             'in_node_channels': 5   ,
             'in_edge_channels': 2   ,
             'in_aux_channels' : 0   ,
-            'N_kernels'       : 32  ,
+            'N_kernels'       : 128  ,
             'N_heads'         : 16  ,
-            'N_dense_nodes'   : 128  ,
+            'N_dense_nodes'   : 512  ,
             'N_LSTM_nodes'    : 64  ,
             'N_LSTM_layers'   : 5   ,
             'kernel_size'     : 10  ,

@@ -615,3 +615,82 @@ def Truth_SDP_via3vector(Dataset,ProcessingDataset):
         ProcessingDataset._EventIds = IDsList
     else:
         assert ProcessingDataset._EventIds == IDsList, 'Event IDs do not match'
+
+
+
+def Unnormalise_SDP_double(Truth):
+    ''' Unnormalises the SDP values from sin/cos to theta/phi using atan2
+    '''
+    Theta_Norm   = torch.sqrt(Truth[:,0]**2 + Truth[:,1]**2) + 1e-10  # Adding a small value to avoid division by zero
+    Phi_Norm     = torch.sqrt(Truth[:,2]**2 + Truth[:,3]**2) + 1e-10  # Adding a small value to avoid division by zero
+    
+    Gen_SDPTheta = torch.atan2(Truth[:,1]/Theta_Norm, Truth[:,0]/Theta_Norm)
+    Gen_SDPPhi   = torch.atan2(Truth[:,3]/  Phi_Norm, Truth[:,2]/  Phi_Norm)
+    
+    return torch.stack((Gen_SDPTheta,Gen_SDPPhi),dim=1)
+
+
+
+def Truth_SDP_double(Dataset,ProcessingDataset):
+    ''' SDP values are presented in both sin and cosine form. Then unnormalised via atan2
+    '''
+
+    IDsList = ()
+    Offsets = {1:44.45/180*torch.pi,2:89.87/180*torch.pi,3:132.83/180*torch.pi}#,4:15/180*torch.pi,5:45/180*torch.pi,6:75/180*torch.pi}
+
+    Gen_SDPTheta = torch.zeros(len(Dataset))
+    Gen_SDPPhi   = torch.zeros(len(Dataset))
+    Rec_SDPTheta = torch.zeros(len(Dataset))
+    Rec_SDPPhi   = torch.zeros(len(Dataset))
+    
+    SelectedTelescopes = torch.zeros(len(Dataset))
+    for i,Event in enumerate(Dataset):
+        # ID Checks
+        ID = (Event.get_value('EventID_1/2').int()*10000 + Event.get_value('EventID_2/2').int()%10000).item()
+        IDsList += (ID,)
+
+        if i%100 == 0:
+            print(f'    Processing Truth {i} / {len(Dataset)}',end='\r')
+        TelIDs        = Event.get_pixel_values('TelID')
+        EyeIDs        = Event.get_pixel_values('EyeID')
+        SelectedTelescopeID   = TelIDs.int().bincount().argmax()
+        
+        SelectedTelescopes[i] = SelectedTelescopeID
+        Gen_SDPPhi  [i]       = Event.get_value('Gen_SDPPhi')
+        Gen_SDPTheta[i]       = Event.get_value('Gen_SDPTheta')
+        Rec_SDPPhi  [i]       = Event.get_value('Rec_SDPPhi')
+        Rec_SDPTheta[i]       = Event.get_value('Rec_SDPTheta')
+    print()
+
+    for i in range(1,4): # Apply offsets
+        print(f'Sum of SelectedTelescopes == {i} is {torch.sum(SelectedTelescopes == i)}')
+        Gen_SDPPhi[SelectedTelescopes == i] -= Offsets[i]
+        Rec_SDPPhi[SelectedTelescopes == i] -= Offsets[i]
+    
+    # Convert to sin/cos form
+    Gen_SDPTheta_Cos = torch.cos(Gen_SDPTheta)
+    Gen_SDPTheta_Sin = torch.sin(Gen_SDPTheta)
+    Gen_SDPPhi_Cos   = torch.cos(Gen_SDPPhi)
+    Gen_SDPPhi_Sin   = torch.sin(Gen_SDPPhi)
+
+    Rec_SDPTheta_Cos = torch.cos(Rec_SDPTheta)
+    Rec_SDPTheta_Sin = torch.sin(Rec_SDPTheta)
+    Rec_SDPPhi_Cos   = torch.cos(Rec_SDPPhi)
+    Rec_SDPPhi_Sin   = torch.sin(Rec_SDPPhi)   
+    
+
+    if ProcessingDataset is None:
+        return torch.stack((Gen_SDPTheta_Cos, Gen_SDPTheta_Sin, Gen_SDPPhi_Cos, Gen_SDPPhi_Sin), dim=1), \
+               torch.stack((Rec_SDPTheta_Cos, Rec_SDPTheta_Sin, Rec_SDPPhi_Cos, Rec_SDPPhi_Sin), dim=1)
+    ProcessingDataset._Truth = torch.stack((Gen_SDPTheta_Cos, Gen_SDPTheta_Sin, Gen_SDPPhi_Cos, Gen_SDPPhi_Sin), dim=1)
+    ProcessingDataset._Rec   = torch.stack((Rec_SDPTheta_Cos, Rec_SDPTheta_Sin, Rec_SDPPhi_Cos, Rec_SDPPhi_Sin), dim=1)
+
+    ProcessingDataset.Unnormalise_Truth = Unnormalise_SDP_double
+    ProcessingDataset.Truth_Keys = ('SDPTheta_c','SDPTheta_s','SDPPhi_c','SDPPhi_s')
+    ProcessingDataset.Truth_Units =('','','','')
+    if ProcessingDataset._EventIds is None:
+        ProcessingDataset._EventIds = IDsList
+    else:
+        assert ProcessingDataset._EventIds == IDsList, 'Event IDs do not match'
+
+
