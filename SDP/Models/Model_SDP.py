@@ -87,23 +87,28 @@ def metric(model,Dataset,device,keys=['SDPTheta','SDPPhi'],BatchSize = 256):
     Preds  = Dataset.Unnormalise_Truth(Preds )
     Truths = Dataset.Unnormalise_Truth(Truths)
     # Check for SDP_double definition, 
+    metrics = {}
     if "SDPTheta_c" in Dataset.Truth_Keys and "SDPPhi_c" in Dataset.Truth_Keys:
         # The Unnormalise_Truth will return SDPTheta and SDPPhi values, not c/s of either
-        keys  = ['SDPTheta','SDPPhi']
-        Units = ['rad','rad']  # Default Units for SDPTheta and SDPPhi
-
+        keys  = ['SDPTheta','SDPPhi'] 
+        Units = ['rad','rad']
+        SDPTheta_metric = torch.atan2(torch.sin(torch.deg2rad(Preds[:,0]-Truths[:,0])),torch.cos(torch.deg2rad(Preds[:,0]-Truths[:,0])))
+        SDPPhi_metric   = torch.atan2(torch.sin(torch.deg2rad(Preds[:,1]-Truths[:,1])),torch.cos(torch.deg2rad(Preds[:,1]-Truths[:,1])))
+        metrics["SDPTheta_c"]  = torch.quantile(torch.abs(SDPTheta_metric),0.68)
+        metrics["SDPTheta_s"]  = torch.quantile(torch.abs(SDPTheta_metric),0.68)
+        metrics["SDPPhi_c"]    = torch.quantile(torch.abs(SDPPhi_metric),0.68)
+        metrics["SDPPhi_s"]    = torch.quantile(torch.abs(SDPPhi_metric),0.68)
     else:
         Units = Dataset.Truth_Units
-    metrics = {}
-    for i,key in enumerate(keys):
-        if Units[i] == 'rad':
-            AngDiv = torch.atan2(torch.sin(Preds[:,i]-Truths[:,i]),torch.cos(Preds[:,i]-Truths[:,i]))
-            metrics[key] = torch.quantile(torch.abs(AngDiv),0.68)
-        if Units[i] == 'deg':
-            AngDiv = torch.atan2(torch.sin(torch.deg2rad(Preds[:,i]-Truths[:,i])),torch.cos(torch.deg2rad(Preds[:,i]-Truths[:,i])))
-            metrics[key] = torch.quantile(torch.abs(AngDiv),0.68)*180/torch.pi
-        else:
-            metrics[key] = torch.quantile(torch.abs(Preds[:,i]-Truths[:,i]),0.68)
+        for i,key in enumerate(keys):
+            if Units[i] == 'rad':
+                AngDiv = torch.atan2(torch.sin(Preds[:,i]-Truths[:,i]),torch.cos(Preds[:,i]-Truths[:,i]))
+                metrics[key] = torch.quantile(torch.abs(AngDiv),0.68)
+            if Units[i] == 'deg':
+                AngDiv = torch.atan2(torch.sin(torch.deg2rad(Preds[:,i]-Truths[:,i])),torch.cos(torch.deg2rad(Preds[:,i]-Truths[:,i])))
+                metrics[key] = torch.quantile(torch.abs(AngDiv),0.68)*180/torch.pi
+            else:
+                metrics[key] = torch.quantile(torch.abs(Preds[:,i]-Truths[:,i]),0.68)
     # Return Batch Size to old value
     Dataset.BatchSize = TrainingBatchSize
     return metrics
