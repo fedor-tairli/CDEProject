@@ -273,7 +273,7 @@ def Train(model,Dataset,optimiser,scheduler,Loss,Validation,Metric,Tracker,\
                 optimiser.zero_grad()
             
             predictions = model(BatchMains,BatchAux)
-            losses = Loss(predictions,BatchTruth) # Loss will be a dictionary if multiple losses are used (At least one of the losses must be labeled 'Total')
+            losses = Loss(predictions,BatchTruth,keys=Dataset.Truth_Keys) # Loss will be a dictionary if multiple losses are used (At least one of the losses must be labeled 'Total')
 
             losses['Total'].backward()
             
