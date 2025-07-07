@@ -27,18 +27,18 @@ def Clean_Data_DoNothing(Dataset):
     pass
 
 # Import the functions from the other files, this is just the selection of the used functions
-import SDP_Conv_DataGen
+import Geometry_DataGen
 
 # Data Generation Functions
-Pass_Main     = SDP_Conv_DataGen.Main_Conv2d_Grid_Charge_and_Time
+Pass_Main     = Pass_Main_DoNothing
 
-Pass_Aux      = SDP_Conv_DataGen.Aux_Descriptors
+Pass_Aux      = Geometry_DataGen.Aux_Descriptors
 
-Pass_Truth    = SDP_Conv_DataGen.Truth_SDP_double
+Pass_Truth    = Geometry_DataGen.Geometry_InCameraPlane_Axis
 
 Pass_Rec      = Pass_Rec_DoNothing
 
-Pass_Graph    = Pass_Graph_DoNothing
+Pass_Graph    = Geometry_DataGen.Standard_Graph_Conv3d_Traces
 
 Pass_MetaData = Pass_MetaData_DoNothing
 

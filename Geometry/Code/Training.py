@@ -115,7 +115,7 @@ if __name__ == '__main__' and not TestingThings:
     NeedTraces           = True
     LoadModel            = False
     DoNotTrain           = False
-    DatasetName          = 'SDP_Double_Conv2d' #No / or .pt JUST NAME, eg GraphStructure  Use None to save as default
+    DatasetName          = 'Geometry_Conv3d_CameraPlane_Axis_Dataset' #No / or .pt JUST NAME, eg GraphStructure  Use None to save as default
 
 
     if DoNotTrain: assert RecalculateDataset, 'Recalculate Dataset must be True if DoNotTrain is True'
@@ -158,14 +158,14 @@ if __name__ == '__main__' and not TestingThings:
     if not DoNotTrain:
         # import model
         from TrainingModule import Train , Tracker
-        from Model_SDP import Loss as Loss_function
-        from Model_SDP import validate, metric
-        from Model_SDP import Model_SDP_Double_Conv2d
+        from Model_Geometry import Loss as Loss_function
+        from Model_Geometry import validate, metric
+        from Model_Geometry import Model_Geometry_Conv3d_CameraPlane_Axis
         
 
         
         Models = [
-            Model_SDP_Double_Conv2d
+            Model_Geometry_Conv3d_CameraPlane_Axis
         ]
         
         if SelectNetwork is not None:
@@ -180,13 +180,13 @@ if __name__ == '__main__' and not TestingThings:
 
         # Model Parameters 
         Model_Parameters = {
-            'in_main_channels': (2,),
+            'in_main_channels': (1,),
             'in_node_channels': 5   ,
             'in_edge_channels': 2   ,
             'in_aux_channels' : 0   ,
-            'N_kernels'       : 128  ,
+            'N_kernels'       : 32  ,
             'N_heads'         : 16  ,
-            'N_dense_nodes'   : 512  ,
+            'N_dense_nodes'   : 128  ,
             'N_LSTM_nodes'    : 64  ,
             'N_LSTM_layers'   : 5   ,
             'kernel_size'     : 10  ,
@@ -197,7 +197,7 @@ if __name__ == '__main__' and not TestingThings:
         Training_Parameters = {
             'LR': 0.0001,
             'epochs': 30,
-            'BatchSize': 64,
+            'BatchSize': 32,
             'accumulation_steps': 1,
             'epoch_done': 0,
             'batchBreak': 1e99,

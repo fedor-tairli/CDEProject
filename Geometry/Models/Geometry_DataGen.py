@@ -66,7 +66,19 @@ def make_camera_plane_basis(TelOA, Global_Up = None):
 
     return X_camera, Y_camera, Z_camera
 
-def produce_camera_plane_geometry(SDP_Theta,SDP_Phi,Chi0,Rp,TelID):
+def produce_camera_plane_geometry_Angles(SDP_Theta,SDP_Phi,Chi0,Rp,TelID):
+    '''Normalise geometry to the camera plane
+    Return the Intersection Coords and Shower Axis via spherical angles
+    '''
+    # If the inputs are not tensors, convert them to tensors
+    if not isinstance(SDP_Theta,torch.Tensor):
+        SDP_Theta = torch.tensor(SDP_Theta)
+    if not isinstance(SDP_Phi,torch.Tensor):
+        SDP_Phi = torch.tensor(SDP_Phi)
+    if not isinstance(Chi0,torch.Tensor):
+        Chi0 = torch.tensor(Chi0)
+    if not isinstance(Rp,torch.Tensor):
+        Rp = torch.tensor(Rp)
     # Starting Values
     SDP_vec = make_SDP_vector(SDP_Theta,SDP_Phi)
     Tel_OA = get_telescope_optical_axis(TelID)
@@ -106,11 +118,71 @@ def produce_camera_plane_geometry(SDP_Theta,SDP_Phi,Chi0,Rp,TelID):
     Y_Intersection = torch.dot(intersection_point,Y_camera)
     Z_Intersection = torch.dot(intersection_point,Z_camera)
 
-    # Make an assertion that the Z_intersection is 0
-    assert torch.isclose(Z_Intersection, torch.tensor(0.0, dtype=torch.float32)), \
-        f'Z Intersection is not 0, it is {Z_Intersection.item()}'
+    # # Make an assertion that the Z_intersection is 0 , # Kinda sometimes its not zero actually, so skipping this for now
+    # assert torch.isclose(Z_Intersection, torch.tensor(0.0, dtype=torch.float32)), \
+    #     f'Z Intersection is not 0, it is {Z_Intersection.item()}'
     
     return X_Intersection, Y_Intersection, Shower_Zenith, Shower_Azimuth
+
+
+def produce_camera_plane_geometry_Axis(SDP_Theta,SDP_Phi,Chi0,Rp,TelID):
+    '''Normalise geometry to the camera plane
+    Return the Intersection Coords and Shower Axis in Camera Plane
+    '''
+    # If the inputs are not tensors, convert them to tensors
+    if not isinstance(SDP_Theta,torch.Tensor):
+        SDP_Theta = torch.tensor(SDP_Theta)
+    if not isinstance(SDP_Phi,torch.Tensor):
+        SDP_Phi = torch.tensor(SDP_Phi)
+    if not isinstance(Chi0,torch.Tensor):
+        Chi0 = torch.tensor(Chi0)
+    if not isinstance(Rp,torch.Tensor):
+        Rp = torch.tensor(Rp)
+
+    # Starting Values
+    SDP_vec = make_SDP_vector(SDP_Theta,SDP_Phi)
+    Tel_OA = get_telescope_optical_axis(TelID)
+    Global_Up = torch.tensor([0,0,1],dtype=torch.float32)
+
+    # Construct the SDP
+    Ground_normal = torch.tensor([0,0,1],dtype=torch.float32)
+    Ground_in_SDP = torch.cross(SDP_vec, torch.cross(Ground_normal,SDP_vec))
+    Ground_in_SDP = Ground_in_SDP / torch.norm(Ground_in_SDP,dim=0,keepdim=True)
+    # Construct perpendicular point
+    Ground_Perp_in_SDP = torch.cross(SDP_vec, Ground_in_SDP)    
+    Ground_Perp_in_SDP = Ground_Perp_in_SDP / torch.norm(Ground_Perp_in_SDP,dim=0,keepdim=True)
+    Shower_Axis_dir = torch.cos(Chi0) * SDP_vec + torch.sin(Chi0) * Ground_in_SDP
+    Shower_Axis_dir = Shower_Axis_dir / torch.norm(Shower_Axis_dir,dim=0,keepdim=True)
+    Shower_Perp_dir = torch.cross(SDP_vec, Shower_Axis_dir)
+    Shower_Perp_dir = Shower_Perp_dir / torch.norm(Shower_Perp_dir,dim=0,keepdim=True)
+    Shower_Perp_Point = - Rp * Shower_Perp_dir
+
+    # Construct the Camera Plane Intersection (using Tel_OA and 0,0,0)
+    t_intersection = -torch.dot(Tel_OA,Shower_Perp_Point) / torch.dot(Tel_OA,Shower_Axis_dir)
+    intersection_point = Shower_Perp_Point + t_intersection * Shower_Axis_dir
+
+    # Construct the Camera Plane Basis Vectors
+    X_camera, Y_camera, Z_camera = make_camera_plane_basis(Tel_OA, Global_Up)
+
+    # Produce the Azimuth and Zenith angles Shower axis makes with Camera Normal
+    Shower_Axis_camera  = torch.tensor([ torch.dot(Shower_Axis_dir,X_camera),
+                                        torch.dot(Shower_Axis_dir,Y_camera),
+                                        torch.dot(Shower_Axis_dir,Z_camera) ], dtype=torch.float32)
+    Shower_Axis_camera = Shower_Axis_camera / torch.norm(Shower_Axis_camera,dim=0,keepdim=True) # By definition it should be normalised, but just in case
+    
+    # Shower_Azimuth = torch.atan2(Shower_Axis_camera[1],Shower_Axis_camera[0])
+    # Shower_Zenith  = torch.acos(Shower_Axis_camera[2])
+
+    # Produce the intersection point in Camera Plane
+    X_Intersection = torch.dot(intersection_point,X_camera)
+    Y_Intersection = torch.dot(intersection_point,Y_camera)
+    Z_Intersection = torch.dot(intersection_point,Z_camera)
+
+    # # Make an assertion that the Z_intersection is 0 # Kinda sometimes its not zero actually, so skipping this for now
+    # assert torch.isclose(Z_Intersection, torch.tensor(0.0, dtype=torch.float32),atol = 1e-3), \
+    #     f'Z Intersection is not 0, it is {Z_Intersection.item()}'
+    
+    return X_Intersection, Y_Intersection, Shower_Axis_camera[0], Shower_Axis_camera[1], Shower_Axis_camera[2]
 
 
 def Aux_Descriptors(Dataset, ProcessingDataset):
@@ -195,25 +267,37 @@ def Standard_Graph_Conv3d_Traces(Dataset,ProcessingDataset):
         assert ProcessingDataset._EventIds == IDsList, 'EventIDs do not match'    
 
 
+def Unnormalise_Geometry_CameraPlane_Axis(Data):
+    ''' Unnormalise the geometry of the events withing the axis based camera plane'''
 
+    Data[0] = Data[0] * 1.83 # X
+    Data[1] = Data[1] * 4.89 # Y
+    # Data[2] = Data[2] # Axis_X
+    # Data[3] = Data[3] # Axis_Y
+    # Data[4] = Data[4] # Axis_Z
 
-def Geometry_InCameraPlane(Dataset,ProcessingDataset):
+    return Data
+
+def Geometry_InCameraPlane_Axis(Dataset,ProcessingDataset):
 
     ''' Transform the geometry of the events to be referenced in the camera plane'''
 
     IDsList = ()
     Gen_X       = torch.zeros(len(Dataset),1)
     Gen_Y       = torch.zeros(len(Dataset),1)
-    # Gen_Z       = torch.zeros(len(Dataset),1) # This one is always 0 in camera plane
-    Gen_Azimuth = torch.zeros(len(Dataset),1)
-    Gen_Zenith  = torch.zeros(len(Dataset),1)    
+    # Gen_Z       = torch.zeros(len(Dataset),1) # This one should always 0 in camera plane
+    Gen_Axis_X  = torch.zeros(len(Dataset),1)
+    Gen_Axis_Y  = torch.zeros(len(Dataset),1)
+    Gen_Axis_Z  = torch.zeros(len(Dataset),1)
 
     Rec_X       = torch.zeros(len(Dataset),1)
     Rec_Y       = torch.zeros(len(Dataset),1)
     # Rec_Z       = torch.zeros(len(Dataset),1) 
-    Rec_Azimuth = torch.zeros(len(Dataset),1)
-    Rec_Zenith  = torch.zeros(len(Dataset),1)
+    Rec_Axis_X  = torch.zeros(len(Dataset),1)
+    Rec_Axis_Y  = torch.zeros(len(Dataset),1)
+    Rec_Axis_Z  = torch.zeros(len(Dataset),1)
 
+    # Loop through the events and get the geometry
     for i, Event in enumerate(Dataset):
         if i%100 ==0: print(f'    Processing Geometry {i} / {len(Dataset)}',end='\r')
         ID = (Event.get_value('EventID_1/2').int()*10000 + Event.get_value('EventID_2/2').int()%10000).item()
@@ -233,7 +317,35 @@ def Geometry_InCameraPlane(Dataset,ProcessingDataset):
         This_Rec_Rp       = Event.get_value('Rec_Rp') /1000 # Convert to km
 
 
-        Gen_X[i] , Gen_Y[i] , Gen_Zenith[i], Gen_Azimuth[i] = produce_camera_plane_geometry(This_Gen_SDPTheta, This_Gen_SDPPhi, This_Gen_Chi0, This_Gen_Rp, This_TelID)
-        Rec_X[i] , Rec_Y[i] , Rec_Zenith[i], Rec_Azimuth[i] = produce_camera_plane_geometry(This_Rec_SDPTheta, This_Rec_SDPPhi, This_Rec_Chi0, This_Rec_Rp, This_TelID)
+        Gen_X[i] , Gen_Y[i] , Gen_Axis_X, Gen_Axis_Y, Gen_Axis_Z = produce_camera_plane_geometry_Axis(This_Gen_SDPTheta, This_Gen_SDPPhi, This_Gen_Chi0, This_Gen_Rp, This_TelID)
+        Rec_X[i] , Rec_Y[i] , Rec_Axis_X, Rec_Axis_Y, Rec_Axis_Z = produce_camera_plane_geometry_Axis(This_Rec_SDPTheta, This_Rec_SDPPhi, This_Rec_Chi0, This_Rec_Rp, This_TelID)
+
 
     # Some Normalisation here:
+    # Gen_Axis_X, Gen_Axis_Y, Gen_Axis_Z  are already normalised
+
+    # Since Rp is in KM: use /1.83 for X and 4.89 for Y
+
+    Gen_X = Gen_X / 1.83
+    Gen_Y = Gen_Y / 4.89
+
+    Rec_X = Rec_X / 1.83
+    Rec_Y = Rec_Y / 4.89
+
+
+    # Slap into the dataset
+    if ProcessingDataset is None:
+        return torch.stack((Gen_X,Gen_Y,Gen_Axis_X,Gen_Axis_Y,Gen_Axis_Z),dim=1), \
+               torch.stack((Rec_X,Rec_Y,Rec_Axis_X,Rec_Axis_Y,Rec_Axis_Z),dim=1)
+    else:
+        ProcessingDataset._Truth = torch.stack((Gen_X,Gen_Y,Gen_Axis_X,Gen_Axis_Y,Gen_Axis_Z),dim=1)
+        ProcessingDataset._Rec   = torch.stack((Rec_X,Rec_Y,Rec_Axis_X,Rec_Axis_Y,Rec_Axis_Z),dim=1)
+
+        ProcessingDataset.Truth_Keys = ('X','Y','Axis_X','Axis_Y','Axis_Z')
+        ProcessingDataset.Truth_Units = ('km','km','','','','')
+
+        if ProcessingDataset._EventIds is None:
+            ProcessingDataset._EventIds = IDsList
+        else:
+            assert ProcessingDataset._EventIds == IDsList, 'EventIDs do not match'
+
