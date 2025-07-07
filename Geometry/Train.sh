@@ -2,6 +2,6 @@
 # filepath: /home/fedor-tairli/work/CDEs/PulseTriggering/Code/Train.sh
 
 
-cd /cr/work/tairli/CDEs/SDP/Code || exit 1
+cd /cr/work/tairli/CDEs/Geometry/Code || exit 1
 source /cr/work/tairli/pythonVenv/bin/activate
 python3.10 Training.py "$@"
