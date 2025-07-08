@@ -345,7 +345,8 @@ def Geometry_InCameraPlane_Axis(Dataset,ProcessingDataset):
     else:
         ProcessingDataset._Truth = torch.stack((Gen_X,Gen_Y,Gen_Axis_X,Gen_Axis_Y,Gen_Axis_Z),dim=1).squeeze(2)
         ProcessingDataset._Rec   = torch.stack((Rec_X,Rec_Y,Rec_Axis_X,Rec_Axis_Y,Rec_Axis_Z),dim=1).squeeze(2)
-
+        
+        ProcessingDataset.Unnormalise_Truth = Unnormalise_Geometry_CameraPlane_Axis
         ProcessingDataset.Truth_Keys = ('X','Y','Axis_X','Axis_Y','Axis_Z')
         ProcessingDataset.Truth_Units = ('km','km','','','','')
 
