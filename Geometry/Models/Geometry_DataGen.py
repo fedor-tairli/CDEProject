@@ -185,6 +185,11 @@ def produce_camera_plane_geometry_Axis(SDP_Theta,SDP_Phi,Chi0,Rp,TelID):
     return X_Intersection, Y_Intersection, Shower_Axis_camera[0], Shower_Axis_camera[1], Shower_Axis_camera[2]
 
 
+
+#############################################################
+# Data Generation Functions
+#############################################################
+
 def Aux_Descriptors(Dataset, ProcessingDataset):
     ''' Will just provide some event descriptors for dependence inspection
     Values are : 'Event_Class', 'Primary', 'Gen_LogE', 'Gen_CosZenith', 'Gen_Xmax','Gen_Chi0', 'Gen_Rp'
@@ -299,7 +304,7 @@ def Geometry_InCameraPlane_Axis(Dataset,ProcessingDataset):
 
     # Loop through the events and get the geometry
     for i, Event in enumerate(Dataset):
-        if i%100 ==0: print(f'    Processing Geometry {i} / {len(Dataset)}',end='\r')
+        if i%100 ==0: print(f'    Processing Truth {i} / {len(Dataset)}',end='\r')
         ID = (Event.get_value('EventID_1/2').int()*10000 + Event.get_value('EventID_2/2').int()%10000).item()
         IDsList += (ID,)
 
@@ -338,8 +343,8 @@ def Geometry_InCameraPlane_Axis(Dataset,ProcessingDataset):
         return torch.stack((Gen_X,Gen_Y,Gen_Axis_X,Gen_Axis_Y,Gen_Axis_Z),dim=1), \
                torch.stack((Rec_X,Rec_Y,Rec_Axis_X,Rec_Axis_Y,Rec_Axis_Z),dim=1)
     else:
-        ProcessingDataset._Truth = torch.stack((Gen_X,Gen_Y,Gen_Axis_X,Gen_Axis_Y,Gen_Axis_Z),dim=1)
-        ProcessingDataset._Rec   = torch.stack((Rec_X,Rec_Y,Rec_Axis_X,Rec_Axis_Y,Rec_Axis_Z),dim=1)
+        ProcessingDataset._Truth = torch.stack((Gen_X,Gen_Y,Gen_Axis_X,Gen_Axis_Y,Gen_Axis_Z),dim=1).squeeze(2)
+        ProcessingDataset._Rec   = torch.stack((Rec_X,Rec_Y,Rec_Axis_X,Rec_Axis_Y,Rec_Axis_Z),dim=1).squeeze(2)
 
         ProcessingDataset.Truth_Keys = ('X','Y','Axis_X','Axis_Y','Axis_Z')
         ProcessingDataset.Truth_Units = ('km','km','','','','')
