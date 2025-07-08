@@ -317,8 +317,8 @@ def Geometry_InCameraPlane_Axis(Dataset,ProcessingDataset):
         This_Rec_Rp       = Event.get_value('Rec_Rp') /1000 # Convert to km
 
 
-        Gen_X[i] , Gen_Y[i] , Gen_Axis_X, Gen_Axis_Y, Gen_Axis_Z = produce_camera_plane_geometry_Axis(This_Gen_SDPTheta, This_Gen_SDPPhi, This_Gen_Chi0, This_Gen_Rp, This_TelID)
-        Rec_X[i] , Rec_Y[i] , Rec_Axis_X, Rec_Axis_Y, Rec_Axis_Z = produce_camera_plane_geometry_Axis(This_Rec_SDPTheta, This_Rec_SDPPhi, This_Rec_Chi0, This_Rec_Rp, This_TelID)
+        Gen_X[i] , Gen_Y[i] , Gen_Axis_X[i], Gen_Axis_Y[i], Gen_Axis_Z[i] = produce_camera_plane_geometry_Axis(This_Gen_SDPTheta, This_Gen_SDPPhi, This_Gen_Chi0, This_Gen_Rp, This_TelID)
+        Rec_X[i] , Rec_Y[i] , Rec_Axis_X[i], Rec_Axis_Y[i], Rec_Axis_Z[i] = produce_camera_plane_geometry_Axis(This_Rec_SDPTheta, This_Rec_SDPPhi, This_Rec_Chi0, This_Rec_Rp, This_TelID)
 
 
     # Some Normalisation here:
