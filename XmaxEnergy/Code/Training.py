@@ -95,12 +95,11 @@ if __name__ == '__main__' and TestingThings:
     RunNames = ['CDEsDataset']
     RecalculateDataset = False
     NeedTraces = True
-    DatasetName = 'SDP_Dataset'
+    DatasetName = 'XmaxEnergy_Conv3d_Dataset'
     Dataset = LoadProcessingDataset(Path_To_Data,Path_To_Proc_Data,RunNames,RecalculateDataset = RecalculateDataset,NeedTraces = NeedTraces,OptionalName = DatasetName)
 
-    for data in Dataset._Main:
-        # replace the nan values with 0
-        data[torch.isnan(data)] = 0
+    print(f'Dataset Truth Keys: {Dataset.Truth_Keys}')
+    print(f'Dataset Truth Units: {Dataset.Truth_Units}')
     
     Dataset.Save(Path_To_Proc_Data,Name = DatasetName)
 

@@ -79,7 +79,7 @@ def Truth_XmaxEnergy(Dataset,ProcessingDataset):
     Rec_Energy = []
 
     for i,Event in enumerate(Dataset):
-        print(f'    Processing Truth {i} / {len(Dataset)}',end='\r')
+        # ID Checks
         ID = (Event.get_value('EventID_1/2').int()*10000 + Event.get_value('EventID_2/2').int()%10000).item()
         IDsList += (ID,)
         if i%100 == 0:
@@ -119,8 +119,8 @@ def Truth_XmaxEnergy(Dataset,ProcessingDataset):
     ProcessingDataset._Rec   = torch.stack((Rec_Xmax,Rec_Energy),dim =1)
 
     ProcessingDataset.UnnormaliseTruth = Unnormalise_XmaxEnergy
-    ProcessingDataset.TruthKeys  = ('Xmax','LogE')
-    ProcessingDataset.TruthUnits = ('g/cm^2','')
+    ProcessingDataset.Trut_hKeys  = ('Xmax','LogE')
+    ProcessingDataset.Truth_Units = ('g/cm^2','')
     if ProcessingDataset._EventIds is None:
         ProcessingDataset._EventIds = IDsList
     else:
