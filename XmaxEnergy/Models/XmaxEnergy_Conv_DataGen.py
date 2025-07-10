@@ -118,8 +118,8 @@ def Truth_XmaxEnergy(Dataset,ProcessingDataset):
     ProcessingDataset._Truth = torch.stack((Gen_Xmax,Gen_Energy),dim =1)
     ProcessingDataset._Rec   = torch.stack((Rec_Xmax,Rec_Energy),dim =1)
 
-    ProcessingDataset.UnnormaliseTruth = Unnormalise_XmaxEnergy
-    ProcessingDataset.Trut_hKeys  = ('Xmax','LogE')
+    ProcessingDataset.Unnormalise_Truth = Unnormalise_XmaxEnergy
+    ProcessingDataset.Truth_Keys  = ('Xmax','LogE')
     ProcessingDataset.Truth_Units = ('g/cm^2','')
     if ProcessingDataset._EventIds is None:
         ProcessingDataset._EventIds = IDsList
