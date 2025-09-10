@@ -360,12 +360,27 @@ main (int argc, char **argv)
         }
         // Now write the Rec Trigger array - each row is a pixel, columns are time bins
         outFile << "# Rec Trigger Array (rows: pixels, columns: time bins)" << std::endl;
+        // To Save space, only write the pixels that have trigger, otherwise replace the row with a single zero
         for (const auto& trigger_row : Rec_Trigger_array) {
+          bool has_trigger = false;
+          for (bool val : trigger_row) {
+            if (val) {
+              has_trigger = true;
+              break;
+            }
+          }
+          
+          if (!has_trigger) {
+            outFile << "0" << std::endl;
+            continue;
+          }
+
           for (size_t j = 0; j < trigger_row.size(); j++) {
             outFile << trigger_row[j] << ",";
           }
           outFile << std::endl;
         }
+
         outFile.close();
         if (verbose) {std::cout << "Event " << NEvent_Scanned << " data written to " << full_filename << std::endl;}
 
