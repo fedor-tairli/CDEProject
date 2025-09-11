@@ -227,7 +227,7 @@ main (int argc, char **argv)
           // Pixel MetaData
           pix_Status      = RecPixel.GetStatus     (iPix);
           pix_ID          = RecPixel.GetID         (iPix);
-          pix_Geom_ID     = RecPixel.GetPixelId    (iPix);
+          pix_Geom_ID     = RecPixel.GetPixelId    (iPix) - 1;
           pix_tel_ID      = RecPixel.GetTelescopeId(iPix);
           tel_Pointing_ID = theRecEvent->GetDetector().GetPointingId(eyeID,pix_tel_ID);
 
