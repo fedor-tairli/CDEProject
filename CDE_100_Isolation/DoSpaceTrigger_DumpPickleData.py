@@ -57,6 +57,10 @@ def ReadFile(filename,Data):
             elif line.startswith('# Gen_CoreEyeDist:'):
                 parts = line.strip().split(':')
                 This_Event['Gen_CoreEyeDist'] = float(parts[1].strip())
+            
+            elif line.startswith('# Gen_CherenkovFraction:'):
+                parts = line.strip().split(':')
+                This_Event['Gen_CherenkovFraction'] = float(parts[1].strip())
 
             elif line.startswith('# Gen_Primary:'):
                 parts = line.strip().split(':')

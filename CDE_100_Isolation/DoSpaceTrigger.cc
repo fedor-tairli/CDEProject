@@ -346,7 +346,19 @@ main (int argc, char **argv)
         unsigned int Gen_Primary = genShower.GetPrimary();
         std::string EventClass = eye->GetEventClass();
 
-
+        unsigned int MirrorID;
+        for (MirrorID = 0; MirrorID <10; MirrorID++){
+          if (eye->MirrorIsInEvent(MirrorID)){
+            if (verbose && superverbose ) {std::cout << "Found MirrorID: " << MirrorID << std::endl;}
+            break; // There will only ever be one mirror in these events
+          }
+        } 
+        if (MirrorID == 10 && superverbose && verbose ) {
+          std::cout << "No MirrorID found in this event. Skipping." << std::endl;
+          continue;
+        }
+        FdTelescopeData & telData = eye->GetTelescopeData(MirrorID);
+        double Gen_CherenkovFraction = telData.GetGenApertureLight().GetCherenkovFraction(); 
 
 
         /////////////////////////////////////////////////////////////////////////////////
@@ -376,6 +388,7 @@ main (int argc, char **argv)
         outFile << "# Gen_Rp: " << Gen_Rp << std::endl;
         outFile << "# Gen_T0: " << Gen_T0 << std::endl;
         outFile << "# Gen_CoreEyeDist: " << Gen_CoreEyeDist << std::endl;
+        outFile << "# Gen_CherenkovFraction: " << Gen_CherenkovFraction << std::endl;
         outFile << "# Gen_Primary: " << Gen_Primary << std::endl;
         outFile << "# EventClass: " << EventClass << std::endl;
 
