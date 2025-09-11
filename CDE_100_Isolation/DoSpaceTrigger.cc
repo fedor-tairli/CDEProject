@@ -323,7 +323,7 @@ main (int argc, char **argv)
           t_bin++;
         }
         
-        if (Rec_Trigger_Duration > 20) {
+        if (Rec_Trigger_Duration > 15) {
           if (verbose) {std::cout << "Event " << NEvent_Scanned << " has Rec Trigger Duration " << Rec_Trigger_Duration << " bins. Skipping." << std::endl;}
           continue;
         }
@@ -366,6 +366,20 @@ main (int argc, char **argv)
         // Write the metadata to file
         outFile << "# EventID: " << theRecEvent->GetEventId() << std::endl;
         outFile << "# EyeID: " << eyeID << std::endl;
+
+        outFile << "# Gen_LogE: " << Gen_LogE << std::endl;
+        outFile << "# Gen_CosZen: " << Gen_CosZen << std::endl;
+        outFile << "# Gen_Xmax: " << Gen_Xmax << std::endl;
+        outFile << "# Gen_SDPPhi: " << Gen_SDPPhi << std::endl;
+        outFile << "# Gen_SDPTheta: " << Gen_SDPTheta << std::endl;
+        outFile << "# Gen_Chi0: " << Gen_Chi0 << std::endl;
+        outFile << "# Gen_Rp: " << Gen_Rp << std::endl;
+        outFile << "# Gen_T0: " << Gen_T0 << std::endl;
+        outFile << "# Gen_CoreEyeDist: " << Gen_CoreEyeDist << std::endl;
+        outFile << "# Gen_Primary: " << Gen_Primary << std::endl;
+        outFile << "# EventClass: " << EventClass << std::endl;
+
+
         outFile << "# TotalPixels: " << Signal_array.size() << std::endl;
         // Next write the Status and Position arrays
         outFile << "# PixelID, Status, Theta, Phi" << std::endl;
