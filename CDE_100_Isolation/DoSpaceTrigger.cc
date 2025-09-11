@@ -328,6 +328,28 @@ main (int argc, char **argv)
           continue;
         }
 
+        // Read More Event Data to save to file
+
+        GenShower & genShower = theRecEvent->GetGenShower();
+
+        double Gen_LogE        = std::log10(genShower.GetEnergy());
+        double Gen_CosZen      = genShower.GetCosZenith(); 
+        double Gen_Xmax        = genShower.GetXmax();
+
+        FdGenGeometry & fdGenGeometry = eye->GetGenGeometry();
+        double Gen_SDPPhi   = fdGenGeometry.GetSDPPhi();
+        double Gen_SDPTheta = fdGenGeometry.GetSDPTheta();
+        double Gen_Chi0     = fdGenGeometry.GetChi0();
+        double Gen_Rp       = fdGenGeometry.GetRp();
+        double Gen_T0       = fdGenGeometry.GetT0();
+        double Gen_CoreEyeDist = fdGenGeometry.GetCoreEyeDistance();
+        unsigned int Gen_Primary = genShower.GetPrimary();
+        std::string EventClass = eye->GetEventClass();
+
+
+
+
+        /////////////////////////////////////////////////////////////////////////////////
         // If got here, event is good for further processing, save to file
         NEvent_Accepted += 1;
         if (verbose) {std::cout << "Event " << NEvent_Scanned << " accepted with Rec Trigger Duration " << Rec_Trigger_Duration << " bins." << std::endl;}
