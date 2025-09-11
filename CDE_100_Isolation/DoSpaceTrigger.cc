@@ -242,8 +242,8 @@ main (int argc, char **argv)
           TelescopeGeometry & tel_Geometry = eye_Geometry.GetTelescope(pix_tel_ID);
 
           pix_Trace = RecPixel.GetTrace(iPix);
-          pix_Theta = tel_Geometry.GetPixelOmega(iPix,tel_Pointing_ID);
-          pix_Phi   = tel_Geometry.GetPixelPhi  (iPix,tel_Pointing_ID);
+          pix_Theta = tel_Geometry.GetPixelOmega(pix_Geom_ID,tel_Pointing_ID);
+          pix_Phi   = tel_Geometry.GetPixelPhi  (pix_Geom_ID,tel_Pointing_ID);
           
           pix_trace_length = pix_Trace.size();
 
@@ -334,7 +334,7 @@ main (int argc, char **argv)
 
         double Gen_LogE        = std::log10(genShower.GetEnergy());
         double Gen_CosZen      = genShower.GetCosZenith(); 
-        double Gen_Xmax        = genShower.GetXmax();
+        double Gen_Xmax        = genShower.GetXmaxInterpolated();
 
         FdGenGeometry & fdGenGeometry = eye->GetGenGeometry();
         double Gen_SDPPhi   = fdGenGeometry.GetSDPPhi();

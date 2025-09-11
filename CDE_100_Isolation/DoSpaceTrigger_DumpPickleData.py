@@ -4,12 +4,6 @@ import glob
 import pickle
 
 
-data_path = "./ReadEvents/*"
-
-all_files = sorted(glob.glob(data_path ))
-print(f"Found {len(all_files)} files to process.")
-
-
 
 def ReadFile(filename,Data):
     with open(filename, 'r') as file:
@@ -156,23 +150,30 @@ def ReadFile(filename,Data):
 
         Data.append(This_Event)
 
+if __name__ == "__main__":
 
-Data = []  # List to hold data from all files
+    data_path = "./ReadEvents/*"
 
-LoadPickle = False
-PickleName = 'DoSpaceTrigger_Data.pkl'
+    all_files = sorted(glob.glob(data_path ))
+    print(f"Found {len(all_files)} files to process.")
 
-if LoadPickle and os.path.exists(PickleName):
-    print(f"Pickle file {PickleName} exists, loading data from it.")
-    with open(PickleName, 'rb') as f:
-        Data = pickle.load(f)
-    print(f"Loaded data from {PickleName}, total events: {len(Data)}")
-    
-else:
-    for i,file in enumerate(all_files):
-        print(f"Reading file {i+1}/{len(all_files)}: {file}", end='\r')
-        ReadFile(file,Data)
-    
-    print(f"\nFinished reading files, total events: {len(Data)}")
-    with open(PickleName, 'wb') as f:
-        pickle.dump(Data, f)
+
+    Data = []  # List to hold data from all files
+
+    LoadPickle = False
+    PickleName = 'DoSpaceTrigger_Data.pkl'
+
+    if LoadPickle and os.path.exists(PickleName):
+        print(f"Pickle file {PickleName} exists, loading data from it.")
+        with open(PickleName, 'rb') as f:
+            Data = pickle.load(f)
+        print(f"Loaded data from {PickleName}, total events: {len(Data)}")
+        
+    else:
+        for i,file in enumerate(all_files):
+            print(f"Reading file {i+1}/{len(all_files)}: {file}", end='\r')
+            ReadFile(file,Data)
+        
+        print(f"\nFinished reading files, total events: {len(Data)}")
+        with open(PickleName, 'wb') as f:
+            pickle.dump(Data, f)
