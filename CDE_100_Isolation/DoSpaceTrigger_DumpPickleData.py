@@ -169,7 +169,7 @@ def read_processed_batch(Data, save_data_path):
     # Read all processed files in the save_data_path
     processed_files = sorted(glob.glob(save_data_path))
 
-    for i,file in enumerate(processed_files):
+    for file in processed_files:
         ReadFile(file,Data)
 
     # Delete processed files to save space
@@ -193,7 +193,8 @@ if __name__ == "__main__":
     for energy in ['low','high']:
         if energy == 'low': batches_list = range(46)
         if energy == 'high': batches_list = range(7)
-        else: raise ValueError("Energy must be 'low' or 'high'")
+        
+        
 
         for batch in batches_list:
             print(f"Processing batch {batch} of energy {energy}")
