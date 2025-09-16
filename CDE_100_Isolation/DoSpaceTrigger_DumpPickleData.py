@@ -156,26 +156,36 @@ def ReadFile(filename,Data):
 
 def batch_files(all_files_list,Batch_number,Batch_energy):
     all_files_in_energy = [f for f in all_files_list if Batch_energy in f]
-    Batch_name = f'b{Batch_number}'
+    Batch_name = f'{Batch_number}'
     files_in_batch = [f for f in all_files_in_energy if Batch_name in f]
     return files_in_batch
 
 def run_DoSpaceTrigger(input_files, output_path, exec='./DoSpaceTrigger'):
     
-    for file in input_files:
-        subprocess.run([exec, "-s", output_path, file])
+    print(f"Running DoSpaceTrigger")
+    with open('input_files.txt', 'w') as f:
+        for file in input_files:
+            f.write(f"{file}\n")
+    
+    subprocess.run([exec, "-s" , output_path, "input_files.txt"])
+
+    os.remove('input_files.txt')
+    
+    
     
 def read_processed_batch(Data, save_data_path):
     # Read all processed files in the save_data_path
-    processed_files = sorted(glob.glob(save_data_path))
-
+    # processed_files = sorted(glob.glob(save_data_path))
+    processed_files = sorted(glob.glob(os.path.join(save_data_path, '*.csv')))
+    print(f'Processing {len(processed_files)} Events')
+    
     for file in processed_files:
         ReadFile(file,Data)
 
     # Delete processed files to save space
     for file in processed_files:
         os.remove(file)
-        print(f"Deleted processed file: {file}")
+        # print(f"Deleted processed file: {file}")
 
 
 
@@ -187,12 +197,19 @@ if __name__ == "__main__":
     read_data_path_file = "../ReadingData/FilesToRead.txt"
     pickled_data_path = "./Pickled_Data/"
 
+    low_batches = ['b01','b02','b03','b04','b05','b06','b07','b08','b09','b10',
+                   'b11','b12','b13','b14','b15','b16','b17','b18','b19','b20',
+                   'b21','b22','b23','b24','b25','b26','b27','b28','b29','b30',
+                   'b31','b32','b33','b34','b35','b36','b37','b38','b39','b40',
+                   'b41','b42','b43','b44','b45']
+    high_batches = ['b01','b02','b03','b04','b05','b06']
+
     with open(read_data_path_file, 'r') as f:
         all_files = [line.strip() for line in f]
 
     for energy in ['low','high']:
-        if energy == 'low': batches_list = range(46)
-        if energy == 'high': batches_list = range(7)
+        if energy == 'low': batches_list = low_batches
+        if energy == 'high': batches_list = high_batches
         
         
 
@@ -202,7 +219,9 @@ if __name__ == "__main__":
             if len(files_in_batch) == 0:
                 print(f"No files found for batch {batch} and energy {energy}, skipping.")
                 continue
-            
+
+            print(f"Found {len(files_in_batch)} files for batch {batch} and energy {energy}")
+
             # Run DoSpaceTrigger on the batch files
             run_DoSpaceTrigger(files_in_batch, save_data_path)
 

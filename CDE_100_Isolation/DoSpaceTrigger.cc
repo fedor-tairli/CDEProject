@@ -154,11 +154,18 @@ main (int argc, char **argv)
   unsigned int NEyes_Scanned   = 0;
   unsigned int NEvent_Accepted = 0;
 
+  unsigned int totalFiles = filenames.size();
+  unsigned int fileCounter = 0;
+
   for (const std::string& file : filenames) {
+    fileCounter++;
     if (verbose) {
       std::cout << "Processing file: " << file << std::endl;
     }
-
+    else {
+      std::cout << "Processing file " << fileCounter << " of " << totalFiles << "\r" << std::flush;
+    }
+    
     RecEventFile dataFile(file.c_str());
     RecEvent* theRecEvent = new RecEvent();
     dataFile.SetBuffers(&(theRecEvent));
