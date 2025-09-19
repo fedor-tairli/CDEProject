@@ -231,26 +231,26 @@ class Model_XmaxEnergy_Conv3d(nn.Module):
         Output = torch.cat([Xmax,Energy],dim=1)* self.OutWeights.to(device)
         return Output
     
-class Model_SDP_Conv3d_JustXmax(Model_XmaxEnergy_Conv3d):
-    Name = 'Model_SDP_Conv3d_JustXmax'
+class Model_XmaxEnergy_Conv3d_JustXmax(Model_XmaxEnergy_Conv3d):
+    Name = 'Model_XmaxEnergy_Conv3d_JustXmax'
     Description = '''
     Convolutional Neural Network for SDP Reconstruction
     Only the Theta is learned
     '''
 
     def __init__(self, in_main_channels=(1,), N_kernels=32, N_dense_nodes=128, **kwargs):
-        super(Model_SDP_Conv3d_JustXmax, self).__init__(in_main_channels=in_main_channels, N_kernels=N_kernels, N_dense_nodes=N_dense_nodes, **kwargs)
+        super(Model_XmaxEnergy_Conv3d_JustXmax, self).__init__(in_main_channels=in_main_channels, N_kernels=N_kernels, N_dense_nodes=N_dense_nodes, **kwargs)
         self.OutWeights = torch.tensor([1, 0])
 
 
-class Model_SDP_Conv3d_JustEnergy(Model_XmaxEnergy_Conv3d):
-    Name = 'Model_SDP_Conv3d_JustEnergy'
+class Model_XmaxEnergy_Conv3d_JustEnergy(Model_XmaxEnergy_Conv3d):
+    Name = 'Model_XmaxEnergy_Conv3d_JustEnergy'
     Description = '''
     Convolutional Neural Network for SDP Reconstruction
     Only the Phi is learned
     '''
 
     def __init__(self, in_main_channels=(1,), N_kernels=32, N_dense_nodes=128, **kwargs):
-        super(Model_SDP_Conv3d_JustEnergy, self).__init__(in_main_channels=in_main_channels, N_kernels=N_kernels, N_dense_nodes=N_dense_nodes, **kwargs)
+        super(Model_XmaxEnergy_Conv3d_JustEnergy, self).__init__(in_main_channels=in_main_channels, N_kernels=N_kernels, N_dense_nodes=N_dense_nodes, **kwargs)
         self.OutWeights = torch.tensor([0, 1])
 

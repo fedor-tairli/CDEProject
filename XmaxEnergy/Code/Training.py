@@ -164,8 +164,8 @@ if __name__ == '__main__' and not TestingThings:
 
         
         Models = [
-            Model_XmaxEnergy_Conv3d,
-            Model_SDP_Conv3d_JustXmax,
+            # Model_XmaxEnergy_Conv3d,
+            # Model_SDP_Conv3d_JustXmax,
             Model_SDP_Conv3d_JustEnergy
         ]
         
