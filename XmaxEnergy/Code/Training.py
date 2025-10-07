@@ -159,14 +159,14 @@ if __name__ == '__main__' and not TestingThings:
         from TrainingModule import Train , Tracker
         from Model_XmaxEnergy import Loss as Loss_function
         from Model_XmaxEnergy import validate, metric
-        from Model_XmaxEnergy import Model_XmaxEnergy_Conv3d , Model_SDP_Conv3d_JustXmax, Model_SDP_Conv3d_JustEnergy
+        from Model_XmaxEnergy import Model_XmaxEnergy_Conv3d , Model_SDP_Conv3d_JustXmax, Model_XmaxEnergy_Conv3d_JustEnergy
         
 
         
         Models = [
             # Model_XmaxEnergy_Conv3d,
             # Model_SDP_Conv3d_JustXmax,
-            Model_SDP_Conv3d_JustEnergy
+            Model_XmaxEnergy_Conv3d_JustEnergy
         ]
         
         if SelectNetwork is not None:

@@ -192,6 +192,9 @@ if Suppress_ZeroSizeArray_Errors:
 # all_files = all_files[:3]
 # print("Processing only first 3 files for testing.")
 
+Use_Saturation_Events = True
+Pixel_Signal_Threshold = 10000
+
 for file in all_files:
     MadeChangesToData = False
     with open(file, 'rb') as f:
@@ -200,6 +203,7 @@ for file in all_files:
 
         for i_Event, Event in enumerate(Data):
             if (not 'HillasValues' in Event) or Force_Recalculation:
+                if not MadeChangesToData: print("    Will update this file with new Hillas values.")
                 try: 
                     Calculate_Hillas_Values(Event)
                     MadeChangesToData = True
@@ -209,7 +213,11 @@ for file in all_files:
                     else:
                         print(f"Error calculating Hillas values for event {i_Event} in file {file}: {e}")
                         continue
-                
+            if Use_Saturation_Events:
+                Pixel_Traces = Event['PixelData']['Trace']
+                if not np.any(Pixel_Traces > Pixel_Signal_Threshold):
+                    continue
+
             # Hillas Values 
             All_H_Amplitude      .append(Event['HillasValues']['H_Amplitude']      )
             All_H_Distance       .append(Event['HillasValues']['H_Distance']       )
@@ -367,6 +375,8 @@ All_Desc_Values_limits = {
                             }
 
 
+UseLogNorm = False
+
 fig, ax = plt.subplots(len(All_H_Values)+1,len(All_Desc_Values)+1, figsize=[80,10*len(All_H_Values)])
 
 for v,value in enumerate(All_H_Values.keys()):
@@ -405,7 +415,11 @@ for v,value in enumerate(All_H_Values.keys()):
 
             
 
-        ax[v+1,i+1].hist2d(desc_value, X, bins=50, density=True, cmap=All_Desc_Values_CMAPS[desc_name])
+        if UseLogNorm:
+            ax[v+1,i+1].hist2d(desc_value, X, bins=50, density=True, cmap=All_Desc_Values_CMAPS[desc_name], norm = LogNorm())
+        else:
+            ax[v+1,i+1].hist2d(desc_value, X, bins=50, density=True, cmap=All_Desc_Values_CMAPS[desc_name])
+
         ax[v+1,i+1].set_xlabel(desc_name)
         # ax[v+1,i+1].set_ylabel(value)
         # ax[v+1,i+1].grid()
@@ -425,12 +439,21 @@ ax[0,0].axis('off')
 
 plt.tight_layout()
 
+if Use_Saturation_Events:
+    FileName = "Hillas_Parameters_Distribution_MegaPlot_SaturationEvents"
+else:
+    FileName = "Hillas_Parameters_Distribution_MegaPlot_AllEvents"
 
-plt.savefig(f"Hillas_Parameters_Distribution_MegaPlot.png")
-plt.savefig(f"Hillas_Parameters_Distribution_MegaPlot.pdf")
+if UseLogNorm:
+    FileName += "_LgNorm"
 
 
-print("Saved Hillas_Parameters_Distribution_MegaPlot.png/pdf")
+
+plt.savefig(f"{FileName}.png")
+plt.savefig(f"{FileName}.pdf")
+
+
+print(f"Saved {FileName}.png/pdf")
 
 
 
