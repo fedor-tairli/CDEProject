@@ -16,7 +16,7 @@ from typing import Union, Tuple # needed for the expected/default values of the 
 
 # Define the Loss Function
     
-def Loss(Pred,Truth,keys=['Xmax','LogE'],ReturnTensor = True):
+def Loss(Pred,Truth,keys=['Xmax','LogE','Cherenkov'],ReturnTensor = True):
 
     '''
     Calculates MSE Loss for all the keys in the keys list
@@ -63,7 +63,7 @@ def validate(model,Dataset,Loss,device,BatchSize = 256):
     return Loss(Preds,Truths,keys=Dataset.Truth_Keys,ReturnTensor=False)
     
 
-def metric(model,Dataset,device,keys=['Xmax','LogE'],BatchSize = 256):
+def metric(model,Dataset,device,keys=['Xmax','LogE','Cherenkov'],BatchSize = 256):
     '''
     Takes model, Dataset, Loss Function, device, keys
     Dataset is defined as ProcessingDatasetContainer in the Dataset2.py
@@ -133,7 +133,12 @@ class Model_HillasEnergy(nn.Module):
         self.Energy2 = nn.Linear(N_dense_nodes,N_dense_nodes//2)
         self.Energy3 = nn.Linear(N_dense_nodes//2,1)
         
-        self.OutWeights = torch.tensor([1,1])
+        self.Cherenkov1 = nn.Linear(N_dense_nodes,N_dense_nodes)
+        self.Cherenkov2 = nn.Linear(N_dense_nodes,N_dense_nodes//2)
+        self.Cherenkov3 = nn.Linear(N_dense_nodes//2,1)
+
+        
+        self.OutWeights = torch.tensor([1,1,1])
 
 
     def forward(self,Main,Aux = None):
@@ -159,7 +164,12 @@ class Model_HillasEnergy(nn.Module):
         Energy = self.Dense_Activation(self.Energy2(Energy))
         Energy = self.Energy3(Energy)
 
-        Output = torch.cat([Xmax,Energy],dim=1)* self.OutWeights.to(device)
+        Cherenkov = self.Dense_Activation(self.Cherenkov1(Main))
+        Cherenkov = self.Dense_Activation(self.Cherenkov2(Cherenkov))
+        Cherenkov = self.Cherenkov3(Cherenkov)
+
+
+        Output = torch.cat([Xmax,Energy,Cherenkov],dim=1)* self.OutWeights.to(device)
         return Output
     
 class Model_HillasEnergy_JustXmax(Model_HillasEnergy):
@@ -170,7 +180,7 @@ class Model_HillasEnergy_JustXmax(Model_HillasEnergy):
 
     def __init__(self, in_main_channels=(14,), N_dense_nodes=128, **kwargs):
         super(Model_HillasEnergy_JustXmax, self).__init__(in_main_channels=in_main_channels, N_dense_nodes=N_dense_nodes, **kwargs)
-        self.OutWeights = torch.tensor([1, 0])
+        self.OutWeights = torch.tensor([1, 0, 0])
 
 class Model_HillasEnergy_JustEnergy(Model_HillasEnergy):
     Name = 'Model_HillasEnergy_JustEnergy'
@@ -180,7 +190,17 @@ class Model_HillasEnergy_JustEnergy(Model_HillasEnergy):
 
     def __init__(self, in_main_channels=(14,), N_dense_nodes=128, **kwargs):
         super(Model_HillasEnergy_JustEnergy, self).__init__(in_main_channels=in_main_channels, N_dense_nodes=N_dense_nodes, **kwargs)
-        self.OutWeights = torch.tensor([0, 1])
+        self.OutWeights = torch.tensor([0, 1, 0])
 
+
+class Model_HillasEnergy_JustCherenkov(Model_HillasEnergy):
+    Name = 'Model_HillasEnergy_JustCherenkov'
+    Description = '''
+    A simple dense model that takes in the Hillas Parameters and reconstructs only Cherenkov
+    '''
+
+    def __init__(self, in_main_channels=(14,), N_dense_nodes=128, **kwargs):
+        super(Model_HillasEnergy_JustCherenkov, self).__init__(in_main_channels=in_main_channels, N_dense_nodes=N_dense_nodes, **kwargs)
+        self.OutWeights = torch.tensor([0, 0, 1])
 
 

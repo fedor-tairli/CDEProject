@@ -30,7 +30,7 @@ def Clean_Data_DoNothing(Dataset):
 import Hillas_Enery_DataGen
 
 # Data Generation Functions
-Pass_Main     = Hillas_Enery_DataGen.Main_Hillas_Parameters
+Pass_Main     = Hillas_Enery_DataGen.Main_Hillas_Parameters_and_Geometry
 
 Pass_Aux      = Hillas_Enery_DataGen.Aux_Descriptors
 
@@ -43,4 +43,4 @@ Pass_Graph    = Pass_Graph_DoNothing
 Pass_MetaData = Pass_MetaData_DoNothing
 
 # Extra Cleaning, probably not needed
-Clean_Data = Clean_Data_DoNothing
+Clean_Data = Hillas_Enery_DataGen.Clean_Hillas_Data

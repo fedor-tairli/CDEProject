@@ -7,7 +7,6 @@ import pickle
 ########################################################################################################################
 
 
-
 def Main_Hillas_Parameters(Dataset,ProcessingDataset):
     '''Dataset should be a list of filenames'''
     IDsList = ()
@@ -73,7 +72,13 @@ def Main_Hillas_Parameters(Dataset,ProcessingDataset):
     All_H_Npix            = torch.tensor(All_H_Npix            ).unsqueeze(1)
     All_H_alpha           = torch.tensor(All_H_alpha           ).unsqueeze(1)
 
-    All_H_Amplitude = torch.log10(All_H_Amplitude + 1)  # Log scale the amplitude
+    All_H_Amplitude       = torch.log10(All_H_Amplitude + 1)  # Log scale the amplitude
+    All_H_GOF_Profile     = torch.log10(All_H_GOF_Profile + 1)  # Log scale the GOF
+    
+    All_H_GOF_Time_Major  = torch.clip(torch.abs(All_H_GOF_Time_Major), 0, 1)  # Clip the GOF to avoid inf values
+    All_H_Grad_Time_Major = torch.clip(torch.abs(All_H_Grad_Time_Major), 0, 10)  # Clip the gradient to avoid inf values
+    All_H_GOF_Time_Minor  = torch.clip(torch.abs(All_H_GOF_Time_Minor), 0, 10)  # Clip the GOF to avoid inf values
+    All_H_Grad_Time_Minor = torch.clip(torch.abs(All_H_Grad_Time_Minor), 0, 10)  # Clip the gradient to avoid inf values
 
     if ProcessingDataset is None:
         return torch.cat((All_H_Amplitude,All_H_Distance,All_H_Width,All_H_Length,All_H_Skewness,All_H_Kurtosis,All_H_GOF_Profile,All_H_Grad_Profile,All_H_GOF_Time_Major,All_H_Grad_Time_Major,All_H_GOF_Time_Minor,All_H_Grad_Time_Minor,All_H_Npix,All_H_alpha),dim=1)
@@ -86,9 +91,110 @@ def Main_Hillas_Parameters(Dataset,ProcessingDataset):
     
 
 
+def Main_Hillas_Parameters_and_Geometry(Dataset,ProcessingDataset):
+    '''Dataset should be a list of filenames'''
+    IDsList = ()
+    All_H_Amplitude       = []
+    All_H_Distance        = []
+    All_H_Width           = []
+    All_H_Length          = []
+    All_H_Skewness        = []
+    All_H_Kurtosis        = []
+    All_H_GOF_Profile     = []
+    All_H_Grad_Profile    = []
+    All_H_GOF_Time_Major  = []
+    All_H_Grad_Time_Major = []
+    All_H_GOF_Time_Minor  = []
+    All_H_Grad_Time_Minor = []
+    All_H_Npix            = []
+    All_H_alpha           = []
+    All_SDP_Theta      = []
+    All_SDP_Phi        = []
+    All_Chi0           = []
+    All_Rp             = []
+
+    for file in Dataset:
+        with open(file,'rb') as f:
+            # print(f'Opening file {file}')
+            Data = pickle.load(f)
+        for i,Event in enumerate(Data):
+            
+            if not 'HillasValues' in Event:
+                continue
+                # print(Event.keys())
+                # raise ValueError('HillasValues have not been calculated')
+        
+            if i%100 == 0: print(f'    Processing Main {i} / {len(Data)} with {len(IDsList)} total Events',end='\r')
+            ID = Event['Batch']+Event['Shower']    
+            IDsList += (ID,)
+        
+            HillasValues = Event['HillasValues']
+
+            All_H_Amplitude      .append(HillasValues['H_Amplitude']      )
+            All_H_Distance       .append(HillasValues['H_Distance']       )
+            All_H_Width          .append(HillasValues['H_Width']          )
+            All_H_Length         .append(HillasValues['H_Length']         )
+            All_H_Skewness       .append(HillasValues['H_Skewness']       )
+            All_H_Kurtosis       .append(HillasValues['H_Kurtosis']       )
+            All_H_GOF_Profile    .append(HillasValues['H_GOF_Profile']    )
+            All_H_Grad_Profile   .append(HillasValues['H_Grad_Profile']   )
+            All_H_GOF_Time_Major .append(HillasValues['H_GOF_Time_Major'] )
+            All_H_Grad_Time_Major.append(HillasValues['H_Grad_Time_Major'])
+            All_H_GOF_Time_Minor .append(HillasValues['H_GOF_Time_Minor'] )
+            All_H_Grad_Time_Minor.append(HillasValues['H_Grad_Time_Minor'])
+            All_H_Npix           .append(HillasValues['H_Npix']           )
+            All_H_alpha          .append(HillasValues['H_alpha']          )
+
+            All_SDP_Theta      .append(Event['Gen_SDPTheta']      )
+            All_SDP_Phi        .append(Event['Gen_SDPPhi']        )
+            All_Chi0           .append(Event['Gen_Chi0']           )
+            All_Rp             .append(Event['Gen_Rp']             )
+
+    
+    All_H_Amplitude       = torch.tensor(All_H_Amplitude       ).unsqueeze(1)
+    All_H_Distance        = torch.tensor(All_H_Distance        ).unsqueeze(1)
+    All_H_Width           = torch.tensor(All_H_Width           ).unsqueeze(1)
+    All_H_Length          = torch.tensor(All_H_Length          ).unsqueeze(1)
+    All_H_Skewness        = torch.tensor(All_H_Skewness        ).unsqueeze(1)
+    All_H_Kurtosis        = torch.tensor(All_H_Kurtosis        ).unsqueeze(1)
+    All_H_GOF_Profile     = torch.tensor(All_H_GOF_Profile     ).unsqueeze(1)
+    All_H_Grad_Profile    = torch.tensor(All_H_Grad_Profile    ).unsqueeze(1)
+    All_H_GOF_Time_Major  = torch.tensor(All_H_GOF_Time_Major  ).unsqueeze(1)
+    All_H_Grad_Time_Major = torch.tensor(All_H_Grad_Time_Major ).unsqueeze(1)
+    All_H_GOF_Time_Minor  = torch.tensor(All_H_GOF_Time_Minor  ).unsqueeze(1)
+    All_H_Grad_Time_Minor = torch.tensor(All_H_Grad_Time_Minor ).unsqueeze(1)
+    All_H_Npix            = torch.tensor(All_H_Npix            ).unsqueeze(1)
+    All_H_alpha           = torch.tensor(All_H_alpha           ).unsqueeze(1)
+
+    All_SDP_Theta      = torch.tensor(All_SDP_Theta      ).unsqueeze(1)
+    All_SDP_Phi        = torch.tensor(All_SDP_Phi        ).unsqueeze(1)
+    All_Chi0           = torch.tensor(All_Chi0           ).unsqueeze(1)
+    All_Rp             = torch.tensor(All_Rp             ).unsqueeze(1)
 
 
-def Unnormalise_XmaxEnergy(XmaxEnergy):
+
+    All_H_Amplitude       = torch.log10(All_H_Amplitude + 1)  # Log scale the amplitude
+    All_H_GOF_Profile     = torch.log10(All_H_GOF_Profile + 1)  # Log scale the GOF
+    
+    All_H_GOF_Time_Major  = torch.clip(torch.abs(All_H_GOF_Time_Major), 0, 1)  # Clip the GOF to avoid inf values
+    All_H_Grad_Time_Major = torch.clip(torch.abs(All_H_Grad_Time_Major), 0, 10)  # Clip the gradient to avoid inf values
+    All_H_GOF_Time_Minor  = torch.clip(torch.abs(All_H_GOF_Time_Minor), 0, 10)  # Clip the GOF to avoid inf values
+    All_H_Grad_Time_Minor = torch.clip(torch.abs(All_H_Grad_Time_Minor), 0, 10)  # Clip the gradient to avoid inf values
+
+
+    All_Rp = torch.log10(All_Rp + 1)  # Log scale the Rp
+
+    if ProcessingDataset is None:
+        return torch.cat((All_H_Amplitude,All_H_Distance,All_H_Width,All_H_Length,All_H_Skewness,All_H_Kurtosis,All_H_GOF_Profile,All_H_Grad_Profile,All_H_GOF_Time_Major,All_H_Grad_Time_Major,All_H_GOF_Time_Minor,All_H_Grad_Time_Minor,All_H_Npix,All_H_alpha,All_SDP_Theta,All_SDP_Phi,All_Chi0,All_Rp),dim=1)
+    ProcessingDataset._Main.append(torch.cat((All_H_Amplitude,All_H_Distance,All_H_Width,All_H_Length,All_H_Skewness,All_H_Kurtosis,All_H_GOF_Profile,All_H_Grad_Profile,All_H_GOF_Time_Major,All_H_Grad_Time_Major,All_H_GOF_Time_Minor,All_H_Grad_Time_Minor,All_H_Npix,All_H_alpha,All_SDP_Theta,All_SDP_Phi,All_Chi0,All_Rp),dim=1))
+    ProcessingDataset.GraphData = False
+    if ProcessingDataset._EventIds is None:
+        ProcessingDataset._EventIds = IDsList
+    else:
+        assert ProcessingDataset._EventIds == IDsList, 'EventIDs do not match'
+
+
+def Unnormalise_XmaxEnergyCF(XmaxEnergy):
     '''Will unnormalise Xmax and Energy'''
     # Normalise Xmax
     XmaxMean = 591
@@ -100,6 +206,8 @@ def Unnormalise_XmaxEnergy(XmaxEnergy):
     EnergyStd  = 0.475
     XmaxEnergy[:,1] = XmaxEnergy[:,1] * EnergyStd + EnergyMean
 
+    # Cherenkov Fraction - nothing
+
     return XmaxEnergy
 
 def Truth_XmaxEnergy(Dataset,ProcessingDataset):
@@ -107,6 +215,7 @@ def Truth_XmaxEnergy(Dataset,ProcessingDataset):
     IDsList = ()
     Gen_Xmax   = []
     Gen_Energy = []
+    Gen_CF     = []
     
     for file in Dataset:
         
@@ -123,13 +232,15 @@ def Truth_XmaxEnergy(Dataset,ProcessingDataset):
             
             Gen_Xmax  .append(torch.tensor(Event['Gen_Xmax']))
             Gen_Energy.append(torch.tensor(Event['Gen_LogE']))
-
+            Gen_CF    . append(torch.tensor(Event['Gen_CherenkovFraction']))
 
     
     Gen_Xmax   = torch.stack(Gen_Xmax)
     Gen_Energy = torch.stack(Gen_Energy)
+    Gen_CF     = torch.stack(Gen_CF)
     Rec_Xmax   = torch.zeros_like(Gen_Xmax)
     Rec_Energy = torch.zeros_like(Gen_Energy)
+    Rec_CF     = torch.zeros_like(Gen_CF)
     
 
     # Normalise Xmax
@@ -144,14 +255,17 @@ def Truth_XmaxEnergy(Dataset,ProcessingDataset):
     Gen_Energy = (Gen_Energy - EnergyMean) / EnergyStd
     Rec_Energy = (Rec_Energy - EnergyMean) / EnergyStd
 
-    if ProcessingDataset is None:
-        return torch.stack((Gen_Xmax,Gen_Energy),dim =1) , torch.stack((Rec_Xmax,Rec_Energy),dim =1)
-    ProcessingDataset._Truth = torch.stack((Gen_Xmax,Gen_Energy),dim =1)
-    ProcessingDataset._Rec   = torch.stack((Rec_Xmax,Rec_Energy),dim =1)
+    # Normalise Cherenkov Fraction
+    Gen_CF = Gen_CF / 100
 
-    ProcessingDataset.Unnormalise_Truth = Unnormalise_XmaxEnergy
-    ProcessingDataset.Truth_Keys  = ('Xmax','LogE')
-    ProcessingDataset.Truth_Units = ('g/cm^2','')
+    if ProcessingDataset is None:
+        return torch.stack((Gen_Xmax,Gen_Energy,Gen_CF),dim =1) , torch.stack((Rec_Xmax,Rec_Energy,Rec_CF),dim =1)
+    ProcessingDataset._Truth = torch.stack((Gen_Xmax,Gen_Energy,Gen_CF),dim =1)
+    ProcessingDataset._Rec   = torch.stack((Rec_Xmax,Rec_Energy,Rec_CF),dim =1)
+
+    ProcessingDataset.Unnormalise_Truth = Unnormalise_XmaxEnergyCF
+    ProcessingDataset.Truth_Keys  = ('Xmax','LogE','CherenkovFraction')
+    ProcessingDataset.Truth_Units = ('g/cm^2','','')
     if ProcessingDataset._EventIds is None:
         ProcessingDataset._EventIds = IDsList
     else:
@@ -221,7 +335,7 @@ def Aux_Descriptors(Dataset, ProcessingDataset):
             Gen_SDPTheta  .append(Event['Gen_SDPTheta'])
             Gen_SDPPhi    .append(Event['Gen_SDPPhi'])
             Gen_CherFrac  .append(Event['Gen_CherenkovFraction'])
-    
+
     Event_Class   = torch.tensor(Event_Class  ).unsqueeze(1)
     Primary       = torch.tensor(Primary      ).unsqueeze(1)
     Gen_LogE      = torch.tensor(Gen_LogE     ).unsqueeze(1)
@@ -244,5 +358,47 @@ def Aux_Descriptors(Dataset, ProcessingDataset):
             ProcessingDataset._EventIds = IDsList
         else:
             assert ProcessingDataset._EventIds == IDsList, 'EventIDs do not match'
+
+
+
+
+def Clean_Hillas_Data(Dataset):
+    Main = Dataset._Main[0]
+    Truth = Dataset._Truth
+    Aux = Dataset._Aux
+    Rec = Dataset._Rec
+
+    IDsList = Dataset._EventIds
+
+    New_Main = []
+    New_Truth = []
+    New_Aux = []
+    New_Rec = []
+
+    New_IDsList = []
+
+    N_BadEvents = 0 
+    for i in range(len(Main)):
+        N_BadEvents += 1
+        if torch.any(torch.isnan(Main[i])) or torch.any(torch.isinf(Main[i])): continue
+        if torch.any(torch.isnan(Truth[i])) or torch.any(torch.isinf(Truth[i])): continue
+        # if torch.any(torch.isnan(Aux[i])) or torch.any(torch.isinf(Aux[i])): continue
+        # if torch.any(torch.isnan(Rec[i])) or torch.any(torch.isinf(Rec[i])): continue
+
+        New_Main.append(Main[i])
+        New_Truth.append(Truth[i])
+        New_Aux.append(Aux[i])
+        New_Rec.append(Rec[i])
+        New_IDsList.append(IDsList[i])
+        
+        N_BadEvents -= 1
+        print(f'    Cleaning Data {i} / {len(Main)} with {len(New_IDsList)} total Events, removed {N_BadEvents} bad events',end='\r')
+    print()
+    Dataset._Main = [torch.stack(New_Main),]
+    Dataset._Truth = torch.stack(New_Truth)
+    Dataset._Aux = torch.stack(New_Aux)
+    Dataset._Rec = torch.stack(New_Rec)
+    Dataset._EventIds = tuple(New_IDsList)
+
 
 

@@ -169,15 +169,16 @@ All_GenRp                = []
 All_GenCherenkovFraction = []
 All_GenPrimary           = []
 All_EventClass           = []
+All_Highest_Bins         = []
 
 
 
 data_path = "./PickledData/*"
 all_files = sorted(glob.glob(data_path))
-
+all_files = [f for f in all_files if 'DoSpaceTrigger_Data_Batch' in f]
 
 print(f'Found {len(all_files)} files')
-
+# print(all_files)
 
 ## Reading Loop
 
@@ -192,7 +193,7 @@ if Suppress_ZeroSizeArray_Errors:
 # all_files = all_files[:3]
 # print("Processing only first 3 files for testing.")
 
-Use_Saturation_Events = True
+Use_Saturation_Events = False
 Pixel_Signal_Threshold = 10000
 
 for file in all_files:
@@ -203,7 +204,6 @@ for file in all_files:
 
         for i_Event, Event in enumerate(Data):
             if (not 'HillasValues' in Event) or Force_Recalculation:
-                if not MadeChangesToData: print("    Will update this file with new Hillas values.")
                 try: 
                     Calculate_Hillas_Values(Event)
                     MadeChangesToData = True
@@ -213,11 +213,12 @@ for file in all_files:
                     else:
                         print(f"Error calculating Hillas values for event {i_Event} in file {file}: {e}")
                         continue
-            if Use_Saturation_Events:
-                Pixel_Traces = Event['PixelData']['Trace']
-                if not np.any(Pixel_Traces > Pixel_Signal_Threshold):
-                    continue
+                if not MadeChangesToData: print("    Will update this file with new Hillas values.")
+            Pixel_Traces = Event['PixelData']['Trace']
+            Highest_Bin_Signal = np.max(Pixel_Traces)
 
+            if Use_Saturation_Events and (Highest_Bin_Signal < Pixel_Signal_Threshold): continue
+                
             # Hillas Values 
             All_H_Amplitude      .append(Event['HillasValues']['H_Amplitude']      )
             All_H_Distance       .append(Event['HillasValues']['H_Distance']       )
@@ -246,6 +247,7 @@ for file in all_files:
             All_GenCherenkovFraction.append(Event['Gen_CherenkovFraction'])
             All_GenPrimary          .append(Event['Gen_Primary']          )
             All_EventClass          .append(Event['EventClass']           )
+            All_Highest_Bins        .append(Highest_Bin_Signal            )
 
             if (i_Event+1) % 1000 == 0:
                 print(f"    Processed {i_Event+1}/{len(Data)} events", end='\r')
@@ -293,6 +295,7 @@ All_GenRp                = np.array(All_GenRp                )
 All_GenCherenkovFraction = np.array(All_GenCherenkovFraction )
 All_GenPrimary           = np.array(All_GenPrimary           )
 All_EventClass           = np.array(All_EventClass           )
+All_Highest_Bins         = np.array(All_Highest_Bins         )
 print("Converted all lists to numpy arrays.")
 
 
@@ -306,6 +309,7 @@ All_WL_Ratio = All_H_Width / All_H_Length
 print("Calculated WL_Ratio = Width / Length")
 print("This is a measure of the elongation of the image.")
 
+All_Highest_Bins = np.log10(np.clip(All_Highest_Bins, a_min=1, a_max=np.inf))
 
 
 ##################################################################  Plotting
@@ -336,7 +340,8 @@ All_Desc_Values = {  "GenLogE"   : All_GenLogE,
                      "GenSDPPhi"  : All_GenSDPPhi,
                      "GenChi0"    : All_GenChi0,
                      "GenRp"      : All_GenRp,
-                     "GenCherenkovFraction": All_GenCherenkovFraction
+                     "GenCherenkovFraction": All_GenCherenkovFraction,
+                     "Log Highest Signal / Bin": All_Highest_Bins,
                  }
 
 
@@ -349,6 +354,7 @@ All_Desc_Values_CMAPS = {"GenLogE"   : cm.Purples,
                          "GenChi0"    : cm.Reds   ,
                          "GenRp"      : cm.Reds   ,
                          "GenCherenkovFraction": cm.BuPu,
+                         "Log Highest Signal / Bin": cm.GnBu
                           }
 from matplotlib.colors import LogNorm
 
@@ -372,8 +378,11 @@ All_H_Values_scales = {"Amplitude": 'log',
 
 All_Desc_Values_limits = {
                           "GenCherenkovFraction": [80,100],
-                            }
+                        }
 
+All_Desc_Values_scales = {
+                            "Log Highest Signal / Bin": 'linear',
+                        }
 
 UseLogNorm = False
 
@@ -411,14 +420,14 @@ for v,value in enumerate(All_H_Values.keys()):
             limits = All_Desc_Values_limits[desc_name]
             desc_value_limit_mask = (desc_value > limits[0]) & (desc_value < limits[1]) & np.isfinite(desc_value)
             desc_value = desc_value[desc_value_limit_mask]
-            X = X[desc_value_limit_mask]
-
-            
+            X_limited = X[desc_value_limit_mask]
+        else:
+            X_limited = X
 
         if UseLogNorm:
-            ax[v+1,i+1].hist2d(desc_value, X, bins=50, density=True, cmap=All_Desc_Values_CMAPS[desc_name], norm = LogNorm())
+            ax[v+1,i+1].hist2d(desc_value, X_limited, bins=50, density=True, cmap=All_Desc_Values_CMAPS[desc_name], norm = LogNorm())
         else:
-            ax[v+1,i+1].hist2d(desc_value, X, bins=50, density=True, cmap=All_Desc_Values_CMAPS[desc_name])
+            ax[v+1,i+1].hist2d(desc_value, X_limited, bins=50, density=True, cmap=All_Desc_Values_CMAPS[desc_name])
 
         ax[v+1,i+1].set_xlabel(desc_name)
         # ax[v+1,i+1].set_ylabel(value)
@@ -432,7 +441,6 @@ for i, (desc_name, desc_value) in enumerate(All_Desc_Values.items()):
     ax[0,i+1].hist(desc_value, bins=50, density=True,color=All_Desc_Values_CMAPS[desc_name](0.75))
     ax[0,i+1].set_xlabel(desc_name)
     ax[0,i+1].set_ylabel("Density")
-    # ax[0,i+1].set_yscale('log')
     ax[0,i+1].grid()
 
 ax[0,0].axis('off')
