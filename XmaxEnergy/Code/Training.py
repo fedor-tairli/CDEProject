@@ -160,13 +160,19 @@ if __name__ == '__main__' and not TestingThings:
         from Model_XmaxEnergy import Loss as Loss_function
         from Model_XmaxEnergy import validate, metric
         from Model_XmaxEnergy import Model_XmaxEnergy_Conv3d , Model_SDP_Conv3d_JustXmax, Model_XmaxEnergy_Conv3d_JustEnergy
+        from Model_XmaxEnergy import Model_XmaxEnergy_ManFeatures, Model_XmaxEnergy_LSTMFeatures
+        from Model_XmaxEnergy import Model_XmaxEnergy_Conv2d
         
 
         
         Models = [
             # Model_XmaxEnergy_Conv3d,
             # Model_SDP_Conv3d_JustXmax,
-            Model_XmaxEnergy_Conv3d_JustEnergy
+            # Model_XmaxEnergy_Conv3d_JustEnergy,
+            # Model_XmaxEnergy_ManFeatures,
+            # Model_XmaxEnergy_LSTMFeatures,
+            Model_XmaxEnergy_Conv2d,
+
         ]
         
         if SelectNetwork is not None:
@@ -188,8 +194,8 @@ if __name__ == '__main__' and not TestingThings:
             'N_kernels'       : 32  ,
             'N_heads'         : 16  ,
             'N_dense_nodes'   : 256  ,
-            'N_LSTM_nodes'    : 64  ,
-            'N_LSTM_layers'   : 5   ,
+            'N_LSTM_nodes'    : 5  ,
+            'N_LSTM_layers'   : 3   ,
             'kernel_size'     : 10  ,
             'conv2d_init_type': 'normal',
             'model_Dropout'   : 0.2 ,
@@ -198,7 +204,7 @@ if __name__ == '__main__' and not TestingThings:
         Training_Parameters = {
             'LR': 0.0001,
             'epochs': 30,
-            'BatchSize': 64,
+            'BatchSize': 32,
             'accumulation_steps': 1,
             'epoch_done': 0,
             'batchBreak': 1e99,

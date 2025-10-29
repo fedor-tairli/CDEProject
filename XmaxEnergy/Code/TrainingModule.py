@@ -61,7 +61,15 @@ class Tracker():
         if self.EpochLearningRate[-1] <= self.MinLearningRate:
             self.Abort_Call_Reason = 'Learning Rate too low'
             self.Abort_Call = True
-          
+        
+        # if np.argmin(self.EpockValLoss['Total']) > Info['EpochValLoss']['Total']:
+        #     self.ModelStates.append(copy.deepcopy(Info['ModelState']))
+        #     if len(self.ModelStates) > 2:
+        #         self.ModelStates.pop(0)
+            
+        # print('Saving Model State')
+        # print(Info['ModelState'])
+        self.ModelStates.append(copy.deepcopy(Info['ModelState']))
         # Printout 
         if Info['EpochLoss']['Total']> 0.0001 and Info['EpochValLoss']['Total'] > 0.0001:
             print(f'Epoch Loss: {Info["EpochLoss"]["Total"]:.4f} | Epoch Val Loss: {Info["EpochValLoss"]["Total"]:.4f}')
@@ -105,35 +113,37 @@ class Tracker():
 
         # Produce the log
         LogName = PathToLogFolder+ModelName+datetime.now().strftime("%Y-%m-%d_%A_%H-%M")+'_Log.txt'
-        with open(LogName,'w') as f:
-            f.write(f'Log file for training of {ModelName} \n')
-            f.write(f'Start Time: {self.StartTime} \n')
-            f.write(f'End   Time: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")} \n')
-            f.write('\n')
-            f.write(f'Training Parameters: \n')
-            for key in self.Training_Parameters.keys():
-                f.write(f'    {key} : {self.Training_Parameters[key]} \n')
-            f.write('\n')
-            f.write(f'Model Parameters: \n')
-            for key in self.Model_Parameters.keys():
-                f.write(f'    {key} : {self.Model_Parameters[key]} \n')
-            f.write('\n')
-            f.write(f'Training Log: \n')
-            if self.Abort_Call:
-                f.write  (f'    Training Exit Reason: {self.Abort_Call_Reason} \n')
-            else: f.write(f'    Training Exit Reason: Reached Final Epoch \n')
-            f.write('\n')
-            f.write(f'    Final Losses: \n')
-            for key in self.EpochLoss.keys():
-                f.write(f'        {key} : {self.EpochLoss[key][-1]} \n')
-            f.write(f'    Final Validation Losses: \n')
-            for key in self.EpochValLoss.keys():
-                f.write(f'        {key} : {self.EpochValLoss[key][-1]} \n')
-            f.write(f'    Final Metrics: \n')
-            for key in self.EpochMetric.keys():
-                f.write(f'        {key} : {self.EpochMetric[key][-1]} \n')
-            f.write('\n')
-
+        if len(self.EpochLoss['Total'])>0:
+            with open(LogName,'w') as f:
+                f.write(f'Log file for training of {ModelName} \n')
+                f.write(f'Start Time: {self.StartTime} \n')
+                f.write(f'End   Time: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")} \n')
+                f.write('\n')
+                f.write(f'Training Parameters: \n')
+                for key in self.Training_Parameters.keys():
+                    f.write(f'    {key} : {self.Training_Parameters[key]} \n')
+                f.write('\n')
+                f.write(f'Model Parameters: \n')
+                for key in self.Model_Parameters.keys():
+                    f.write(f'    {key} : {self.Model_Parameters[key]} \n')
+                f.write('\n')
+                f.write(f'Training Log: \n')
+                if self.Abort_Call:
+                    f.write  (f'    Training Exit Reason: {self.Abort_Call_Reason} \n')
+                else: f.write(f'    Training Exit Reason: Reached Final Epoch \n')
+                f.write('\n')
+                f.write(f'    Final Losses: \n')
+                for key in self.EpochLoss.keys():
+                    f.write(f'        {key} : {self.EpochLoss[key][-1]} \n')
+                f.write(f'    Final Validation Losses: \n')
+                for key in self.EpochValLoss.keys():
+                    f.write(f'        {key} : {self.EpochValLoss[key][-1]} \n')
+                f.write(f'    Final Metrics: \n')
+                for key in self.EpochMetric.keys():
+                    f.write(f'        {key} : {self.EpochMetric[key][-1]} \n')
+                f.write('\n')
+        else:
+            print('No epochs were completed, no log will be made')
 
 
 
@@ -243,7 +253,7 @@ def Train(model,Dataset,optimiser,scheduler,Loss,Validation,Metric,Tracker,\
     Min_Val_Loss = 1e99
     tolerance = 0.05
     
-
+    CUDA_Memory_Fails_Counter = 0
 
     # Training Loop for Ungraphed Data
     torch.autograd.set_detect_anomaly(AutodetectAnomaly)
@@ -264,41 +274,66 @@ def Train(model,Dataset,optimiser,scheduler,Loss,Validation,Metric,Tracker,\
         Dataset.State = 'Train'
         
         for _, BatchMains, BatchAux, BatchTruth, _ in Dataset: # Dataset Event index is not used
-            
-            # Check if the Event is okay i guess
-            if batchN > batchBreak:
-                break
-            
-            if Accumulation_steps == 1 or batchN%Accumulation_steps == 0:
-                optimiser.zero_grad()
-            
-            predictions = model(BatchMains,BatchAux)
-            losses = Loss(predictions,BatchTruth,keys=Dataset.Truth_Keys) # Loss will be a dictionary if multiple losses are used (At least one of the losses must be labeled 'Total')
+            try:
+                # Check if the Event is okay i guess
+                if batchN > batchBreak:
+                    break
+                
+                if Accumulation_steps == 1 or batchN%Accumulation_steps == 0:
+                    optimiser.zero_grad()
+                
+                predictions = model(BatchMains,BatchAux)
+                losses = Loss(predictions,BatchTruth,keys=Dataset.Truth_Keys) # Loss will be a dictionary if multiple losses are used (At least one of the losses must be labeled 'Total')
 
-            losses['Total'].backward()
-            
-            for key in epoch_loss.keys():
-                epoch_loss[key] += losses[key].item()
-            
-            # Before optimiser.step()
-            # for name, param in model.named_parameters():
-            #     if param.requires_grad:
-            #         print(name, param.grad)
+                losses['Total'].backward()
+                
+                for key in epoch_loss.keys():
+                    epoch_loss[key] += losses[key].item()
+                
+                # Before optimiser.step()
+                # for name, param in model.named_parameters():
+                #     if param.requires_grad:
+                #         print(name, param.grad)
 
-            optimiser.step()
-                            
-            print(f'Batch {str(batchN).ljust(6)}/{len(Dataset)//Dataset.BatchSize} - Loss: {str(losses["Total"].item())[:6].ljust(6)}',end = '\r')
-            # if batchN % 100 == 0: print()
-            # if batchN == 10:
-            #     print('Early Exit for Testing')
-            #     break
-            batchN += 1
-            if Tracker.AbortHuh():
-                print(f'Batch that broke: {batchN}')
-                break
+                optimiser.step()
+                                
+                print(f'Batch {str(batchN).ljust(6)}/{len(Dataset)//Dataset.BatchSize} - Loss: {str(losses["Total"].item())[:6].ljust(6)}',end = '\r')
+                # if batchN % 100 == 0: print()
+                # if batchN == 10:
+                #     print('Early Exit for Testing')
+                #     break
+                batchN += 1
+                if Tracker.AbortHuh():
+                    print(f'Batch that broke: {batchN}')
+                    break
+                # Do CUDA garbage collection
+                torch.cuda.empty_cache()
+            except Exception as e:
+
+                if 'CUDA out of memory' in str(e):
+                    CUDA_Memory_Fails_Counter += 1
+                    print('CUDA out of memory, skipping batch')
+                    torch.cuda.empty_cache()
+                    if CUDA_Memory_Fails_Counter > 10:
+                        print('Too many CUDA out of memory errors, aborting training')
+                        Tracker.Abort_Call_Reason = 'Too many CUDA out of memory errors'
+                        Tracker.Abort_Call = True
+                        break
+                if 'KeyboardInterrupt' in str(e):
+                    print('Keyboard Interrupt, stopping training')
+                    Tracker.Abort_Call_Reason = 'Keyboard Interrupt'
+                    Tracker.Abort_Call = True
+                    break
+                else:
+                    print(f'Error in batch {batchN}, Unknown, stopping training')
+                    Tracker.Abort_Call_Reason = f'Error in batch {batchN}, {e}'
+                    Tracker.Abort_Call = True
+                    break
             
         print() # Progress Bar
-
+        if Tracker.AbortHuh():
+            print(f'Aborting Training from epoch break: {Tracker.Abort_Call_Reason}')
+            break
         # Epoch End will devide by number of batches
         for key in epoch_loss.keys():
             epoch_loss[key] = epoch_loss[key]/batchN

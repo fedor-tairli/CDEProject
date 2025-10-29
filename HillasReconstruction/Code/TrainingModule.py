@@ -62,6 +62,7 @@ class Tracker():
             self.Abort_Call_Reason = 'Learning Rate too low'
             self.Abort_Call = True
           
+        self.ModelStates.append(copy.deepcopy(Info['ModelState']))
         # Printout 
         if Info['EpochLoss']['Total']> 0.0001 and Info['EpochValLoss']['Total'] > 0.0001:
             print(f'Epoch Loss: {Info["EpochLoss"]["Total"]:.4f} | Epoch Val Loss: {Info["EpochValLoss"]["Total"]:.4f}')

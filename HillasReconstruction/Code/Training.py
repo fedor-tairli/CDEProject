@@ -154,8 +154,10 @@ if __name__ == '__main__' and not TestingThings:
         from TrainingModule import Train , Tracker
         from Model_HillasEnergy import Loss as Loss_function
         from Model_HillasEnergy import validate, metric
-        from Model_HillasEnergy import Model_HillasEnergy , Model_HillasEnergy_JustEnergy, Model_HillasEnergy_JustXmax, Model_HillasEnergy_JustCherenkov
-        
+        from Model_HillasEnergy import Model_HillasEnergy , Model_HillasEnergy_JustEnergy
+        # from Model_HillasEnergy import Model_HillasEnergy_JustEnergy_LogLoss, Model_HillasEnergy_JustEnergy_EnergyLoss, Model_HillasEnergy_JustEnergy_EnergySquaredLoss
+        # from Model_HillasEnergy import Model_HillasEnergy_JustEnergy_EnergySquaredLoss_SaturationCut
+        # from Model_HillasEnergy import Model_HillasEnergy_Shallow
 
         
         Models = [
@@ -163,6 +165,11 @@ if __name__ == '__main__' and not TestingThings:
             # Model_HillasEnergy_JustCherenkov,
             # Model_HillasEnergy_JustXmax,
             # Model_HillasEnergy_JustEnergy,
+            # Model_HillasEnergy_JustEnergy_LogLoss,
+            # Model_HillasEnergy_JustEnergy_EnergyLoss,
+            # Model_HillasEnergy_JustEnergy_EnergySquaredLoss,
+            # Model_HillasEnergy_JustEnergy_EnergySquaredLoss_SaturationCut,
+            # Model_HillasEnergy_Shallow,
         ]
         
         if SelectNetwork is not None:
@@ -183,7 +190,7 @@ if __name__ == '__main__' and not TestingThings:
             'in_aux_channels' : 0   ,
             'N_kernels'       : 32  ,
             'N_heads'         : 16  ,
-            'N_dense_nodes'   : 32  ,
+            'N_dense_nodes'   : 8  ,
             'N_LSTM_nodes'    : 64  ,
             'N_LSTM_layers'   : 5   ,
             'kernel_size'     : 10  ,
@@ -192,8 +199,8 @@ if __name__ == '__main__' and not TestingThings:
         }
         
         Training_Parameters = {
-            'LR': 0.0001,
-            'epochs': 50,
+            'LR': 0.01,
+            'epochs': 20,
             'BatchSize': 64,
             'accumulation_steps': 1,
             'epoch_done': 0,

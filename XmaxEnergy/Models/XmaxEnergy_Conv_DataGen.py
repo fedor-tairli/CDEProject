@@ -37,7 +37,8 @@ def Standard_Graph_Conv3d_Traces(Dataset,ProcessingDataset):
         Xs,Ys = IndexToXY(PixID-(TelID-1)*440+1,return_tensor=True)
 
         # Traces normalised Here
-        Traces = torch.log1p((Traces).clip(min=0))
+        # Traces = torch.log1p((Traces).clip(min=0))
+        Traces = Traces.clip(min=0)
         # Pstart normalised Here
         if len(Pstart)>0 : Pstart = Pstart - torch.min(Pstart)
         # Append to the GraphData
