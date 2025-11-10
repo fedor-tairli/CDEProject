@@ -95,7 +95,7 @@ if __name__ == '__main__' and TestingThings:
     RunNames = ['CDEsDataset']
     RecalculateDataset = False
     NeedTraces = True
-    DatasetName = 'XmaxEnergy_Conv3d_Dataset'
+    DatasetName = 'NLRE_Dataset'
     Dataset = LoadProcessingDataset(Path_To_Data,Path_To_Proc_Data,RunNames,RecalculateDataset = RecalculateDataset,NeedTraces = NeedTraces,OptionalName = DatasetName)
 
     print(f'Dataset Truth Keys: {Dataset.Truth_Keys}')
@@ -110,11 +110,11 @@ if __name__ == '__main__' and not TestingThings:
     Use_Test_Set         = False
     Use_All_Sets         = True
     Dataset_RandomIter   = True
-    RecalculateDataset   = False
+    RecalculateDataset   = True
     NeedTraces           = True
     LoadModel            = False
     DoNotTrain           = False
-    DatasetName          = 'XmaxEnergy_Conv3d_Dataset' #No / or .pt JUST NAME, eg GraphStructure  Use None to save as default
+    DatasetName          = 'NLRE_Dataset' #No / or .pt JUST NAME, eg GraphStructure  Use None to save as default
 
 
     if DoNotTrain: assert RecalculateDataset, 'Recalculate Dataset must be True if DoNotTrain is True'
@@ -157,22 +157,15 @@ if __name__ == '__main__' and not TestingThings:
     if not DoNotTrain:
         # import model
         from TrainingModule import Train , Tracker
-        from Model_XmaxEnergy import Loss as Loss_function
-        from Model_XmaxEnergy import validate, metric
-        from Model_XmaxEnergy import Model_XmaxEnergy_Conv3d , Model_SDP_Conv3d_JustXmax, Model_XmaxEnergy_Conv3d_JustEnergy
-        from Model_XmaxEnergy import Model_XmaxEnergy_ManFeatures, Model_XmaxEnergy_LSTMFeatures
-        from Model_XmaxEnergy import Model_XmaxEnergy_Conv2d
+        from Model_NLRE import Loss as Loss_function
+        from Model_NLRE import validate, metric
+        from Model_NLRE import Model_NLRE_with_Conv3d
         
 
         
         Models = [
-            # Model_XmaxEnergy_Conv3d,
-            # Model_SDP_Conv3d_JustXmax,
-            # Model_XmaxEnergy_Conv3d_JustEnergy,
-            # Model_XmaxEnergy_ManFeatures,
-            # Model_XmaxEnergy_LSTMFeatures,
-            Model_XmaxEnergy_Conv2d,
-
+            Model_NLRE_with_Conv3d,
+            
         ]
         
         if SelectNetwork is not None:
@@ -187,13 +180,13 @@ if __name__ == '__main__' and not TestingThings:
 
         # Model Parameters 
         Model_Parameters = {
-            'in_main_channels': (1,),
+            'in_main_channels': (1,6),
             'in_node_channels': 5   ,
             'in_edge_channels': 2   ,
             'in_aux_channels' : 0   ,
             'N_kernels'       : 32  ,
             'N_heads'         : 16  ,
-            'N_dense_nodes'   : 256  ,
+            'N_dense_nodes'   : 128  ,
             'N_LSTM_nodes'    : 5  ,
             'N_LSTM_layers'   : 3   ,
             'kernel_size'     : 10  ,
@@ -202,8 +195,8 @@ if __name__ == '__main__' and not TestingThings:
         }
         
         Training_Parameters = {
-            'LR': 0.0001,
-            'epochs': 30,
+            'LR': 0.001,
+            'epochs': 10,
             'BatchSize': 32,
             'accumulation_steps': 1,
             'epoch_done': 0,

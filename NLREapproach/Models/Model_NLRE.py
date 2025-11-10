@@ -16,38 +16,6 @@ from typing import Union, Tuple # needed for the expected/default values of the 
 
 # Define the Loss Function
     
-def Loss(Pred,Truth,keys=['Xmax','LogE'],ReturnTensor = True):
-
-    '''
-    Calculates MSE Loss for all the keys in the keys list
-    '''
-    assert Pred.shape == Truth.shape, f'Pred Shape: {Pred.shape}, Truth Shape: {Truth.shape} not equal'
-    Truth = Truth.to(Pred.device)
-    # Calculate Loss
-    losses = {}
-    for i,key in enumerate(keys):
-
-        if True and (key == 'LogE'):
-            pred  = Pred[:,i] / 0.475 + 16.15
-            truth = Truth[:,i] / 0.475 + 16.15
-            
-            losses[key] = torch.mean((pred - truth)**2 / (truth**2))
-        
-        elif key == 'LogE':
-            losses[key] = F.mse_loss(Pred[:,i],Truth[:,i])
-        elif key in ['Xmax','Cherenkov','CherenkovFraction']:
-            losses[key] = F.mse_loss(Pred[:,i],Truth[:,i])
-        else:
-            losses[key] = F.mse_loss(Pred[:,i],Truth[:,i])
-            print(f'Warning: Loss for key {key} not defined, using MSE Loss')
-    
-    
-    losses['Total'] = sum(losses.values())
-    if ReturnTensor: return losses
-    else:
-        losses = {key:loss.item() for key,loss in losses.items()}
-        return losses
-
 def Loss(Pred,Truth,keys = ['LogE','Xmax','Chi0','Rp','SDPTheta','SDPPhi'],ReturnTensor = True):
     
     '''
@@ -57,7 +25,7 @@ def Loss(Pred,Truth,keys = ['LogE','Xmax','Chi0','Rp','SDPTheta','SDPPhi'],Retur
 
     '''
     # First, we expect pred to be a list of [predicted classes, RecValues]
-    assert not isinstance(Pred,list), 'Predictions should be a list of [PredictedClasses, RecValues]'
+    assert not (isinstance(Pred,list) or isinstance(Pred, tuple) or isinstance(Pred, dict)), 'Predictions should be a list of [PredictedClasses, RecValues]'
     
     Pred_Classes = Pred[0]
     RecValues    = Pred[1] # Augmented RecValues
@@ -69,13 +37,23 @@ def Loss(Pred,Truth,keys = ['LogE','Xmax','Chi0','Rp','SDPTheta','SDPPhi'],Retur
     Truth_RecValues    = Truth.repeat(Augmentation_Scale,1)
     Truth_Classes      = (RecValues == Truth_RecValues).float()
 
-    # Now, calculate how much is the Rec_Value is deviated from the truth
-
+    # Now, calculate the weights for each guess\
     Augmentation_magnitude = torch.abs(RecValues - Truth_RecValues)
+    weights = torch.ones_like(Truth_Classes)
+    label_T = Truth_Classes == 1
+    label_F = Truth_Classes == 0 
+    guess_T = Pred_Classes >= 0.5
+    guess_F = Pred_Classes <  0.5
+
+    weights[label_T & guess_T] = 1 # Nominal weight # Aug.Mag = 0 here
+    weights[label_T & guess_F] = 5 # High weight    # Aug.Mag = 0 here
+    weights[label_F & guess_F] = 2 # increased weight # Aug.Mag doesnt matter here
+    weights[label_F & guess_T] = Augmentation_magnitude[label_F & guess_T] 
+    
 
     losses = {}
     for i,key in enumerate(keys):
-        losses[key] = F.binary_cross_entropy(Pred_Classes[:,i],Truth_Classes[:,i],weights = Augmentation_magnitude[:,i])
+        losses[key] = F.binary_cross_entropy(Pred_Classes[:,i],Truth_Classes[:,i],weights = weights[:,i])
 
     losses['Total'] = sum(losses.values())
     if ReturnTensor: return losses
@@ -83,35 +61,47 @@ def Loss(Pred,Truth,keys = ['LogE','Xmax','Chi0','Rp','SDPTheta','SDPPhi'],Retur
         losses = {key:loss.item() for key,loss in losses.items()}
         return losses
 
-def validate(model,Dataset,Loss,device,BatchSize = 256):
+def validate(model,Dataset,Loss,device,BatchSize = 64):
     '''
     Takes model, Dataset, Loss Function, device, keys
     Dataset is defined as ProcessingDatasetContainer in the Dataset2.py
     keys are to be used in the loss function
     BatchSize to change in case it doesnt fit into memory
-    Returns the average loss
+    
+    Custom validate function to be used for the NLRE model
+    NLRE returns a list of [PredictedClasses, RecValues]
+    using Augmentation Scale of 2 during validation
     '''
     # make sure the Dataset State is Val
     Dataset.State = 'Val'
     model.eval()
-    TrainingBatchSize = Dataset.BatchSize
-    Dataset.BatchSize = BatchSize
-    Preds  = []
-    Truths = []
+    
+    Dataset.BatchSize = Dataset.BatchSize*(BatchSize//8)
+
+    Preds   = []
+    RecVals = []
+    Truths  = []
+    
     with torch.no_grad():
         for _, BatchMains, BatchAux, BatchTruth,_  in Dataset:
-            
-            Preds .append( model(BatchMains,BatchAux).to('cpu'))
-            Truths.append(       BatchTruth          .to('cpu'))
-        Preds  = torch.cat(Preds ,dim=0)
-        Truths = torch.cat(Truths,dim=0)
+            Model_out = model(BatchMains,BatchAux,Augmentation_Scale=2)
+
+            Preds  .append(Model_out[0].to('cpu'))
+            RecVals.append(Model_out[1].to('cpu'))
+            Truths .append(BatchTruth  .to('cpu'))
+        
+        
+        Preds   = torch.cat(Preds  ,dim=0)
+        RecVals = torch.cat(RecVals,dim=0)
+        Truths  = torch.cat(Truths ,dim=0)
 
     # Return Batch Size to old value
-    Dataset.BatchSize = TrainingBatchSize
-    return Loss(Preds,Truths,keys=Dataset.Truth_Keys,ReturnTensor=False)
+    Dataset.BatchSize = Dataset.BatchSize//(BatchSize//8)
+
+    return Loss([Preds,RecVals],Truths,keys=Dataset.Truth_Keys,ReturnTensor=False)
     
 
-def metric(model,Dataset,device,keys=['Xmax','LogE'],BatchSize = 256):
+def metric(model,Dataset,device,keys=['Xmax','LogE'],BatchSize = 64,metric_style = 'Accuracy'):
     '''
     Takes model, Dataset, Loss Function, device, keys
     Dataset is defined as ProcessingDatasetContainer in the Dataset2.py
@@ -122,32 +112,38 @@ def metric(model,Dataset,device,keys=['Xmax','LogE'],BatchSize = 256):
     # make sure the Dataset State is Val
     Dataset.State = 'Val'
     model.eval()
-    TrainingBatchSize = Dataset.BatchSize
+    
     Dataset.BatchSize = BatchSize
-    Preds  = []
-    Truths = []
+    Preds   = []
+    RecVals = []
+    Truths  = []
+
     with torch.no_grad():
         for _, BatchMains, BatchAux, BatchTruth, _ in Dataset:
-            Preds .append( model(BatchMains,BatchAux).to('cpu'))
-            Truths.append(       BatchTruth          .to('cpu'))
-    Preds  = torch.cat(Preds ,dim=0).cpu()
-    Truths = torch.cat(Truths,dim=0).cpu()
-    Preds  = Dataset.Unnormalise_Truth(Preds )
-    Truths = Dataset.Unnormalise_Truth(Truths)
+            Model_out = model(BatchMains,BatchAux)
+            Preds  .append(Model_out[0].to('cpu'))
+            RecVals.append(Model_out[1].to('cpu'))
+            Truths .append(BatchTruth  .to('cpu'))
+
+    Preds   = torch.cat(Preds  ,dim=0).cpu()
+    Truths  = torch.cat(Truths ,dim=0).cpu()
+    RecVals = torch.cat(RecVals,dim=0).cpu()
+    
+    Truth_labels = (RecVals == Truths).float()
+    Pred_labels = (Preds >= 0.5).float()
+
 
     metrics = {}
-    Units = Dataset.Truth_Units
     for i,key in enumerate(keys):
-        if Units[i] == 'rad':
-            AngDiv = torch.atan2(torch.sin(Preds[:,i]-Truths[:,i]),torch.cos(Preds[:,i]-Truths[:,i]))
-            metrics[key] = torch.quantile(torch.abs(AngDiv),0.68)
-        if Units[i] == 'deg':
-            AngDiv = torch.atan2(torch.sin(torch.deg2rad(Preds[:,i]-Truths[:,i])),torch.cos(torch.deg2rad(Preds[:,i]-Truths[:,i])))
-            metrics[key] = torch.quantile(torch.abs(AngDiv),0.68)*180/torch.pi
+        if metric_style == 'Accuracy':
+            correct = (Truth_labels[:,i] == Pred_labels[:,i]).float()
+            accuracy = correct.sum() / len(correct)
+            metrics[key] = accuracy.item()
         else:
-            metrics[key] = torch.quantile(torch.abs(Preds[:,i]-Truths[:,i]),0.68)
+            raise NotImplementedError(f'Metric Style {metric_style} not implemented')
+        
     # Return Batch Size to old value
-    Dataset.BatchSize = TrainingBatchSize
+    Dataset.BatchSize = Dataset.BatchSize//(BatchSize//8)
     return metrics
 
 
@@ -171,33 +167,37 @@ class Conv_Skip_Block_3d(nn.Module):
         return x + x_residual
 
 
-def NLRE_Augmentation_GaussianShift(inputs,outputs,scale,is_training):
+def NLRE_Augmentation_GaussianShift(inputs, outputs, scale, is_training):
     ''' Function to apply the data augmentation to the inputs and outputs
-    This fucntion creates copies of the inputs, depending on scale
+    This function creates copies of the inputs, depending on scale
     For additional copies, it applies a gaussian shift to RecValues(outputs)
 
     RecValues should be normalised to 0 mean and 1 std beforehand
     
-    A Little problem is that not all values a gaussian distributed, will fix later
-    
+    Output order: [event0, event0_aug1, event0_aug2, ..., event1, event1_aug1, ...]
     '''
-    if scale ==1 :
+    if scale == 1:
         return inputs, outputs
     
-    if not is_training: # Needed for calibration -  Ignore scale and add one copy
+    if not is_training:  # Needed for calibration - Ignore scale and add one copy
         scale = 2
     
-    input_copies  = torch.cat([inputs for _ in range(scale)],dim=0)
-    output_copies = torch.cat([outputs for _ in range(scale)],dim=0)
-
     NEvents = inputs.shape[0]
-    for i in range(1,scale):
-        # Apply Gaussian Shift to the outputs
-        # Here we assume that the outputs are normalised to 0 mean and 1 std
-        gaussian_shift = torch.randn(NEvents,outputs.shape[1]).to(outputs.device)
-        output_copies[i*NEvents:(i+1)*NEvents,:] += gaussian_shift
     
-    return input_copies,output_copies
+    # Use repeat_interleave to group augmented copies by event
+    input_copies = inputs.repeat_interleave(scale, dim=0)
+    output_copies = outputs.repeat_interleave(scale, dim=0)
+
+    # Apply Gaussian shift to augmented copies (skip original copies at indices 0, scale, 2*scale, ...)
+    # Indices for the i-th augmented copy of each event
+    aug_indices = torch.arange(NEvents, device=outputs.device) * scale # Currently points to original copies
+    for i in range(1, scale):
+        aug_indices += 1
+        # Apply Gaussian shift to the outputs at these indices
+        gaussian_shift = torch.randn(NEvents, outputs.shape[1], device=outputs.device)
+        output_copies[aug_indices] += gaussian_shift
+    
+    return input_copies, output_copies
 
 
 
@@ -223,7 +223,7 @@ class Model_NLRE_with_Conv3d(nn.Module):
         in_RecValues_channels = in_main_channels[1]
         assert in_RecValues_channels == 6, 'Expecting 6 RecValues Channels'
         self.kwargs = kwargs
-        dropout = kwargs['dropout'] if 'dropout' in kwargs else 0.2
+        dropout = kwargs['dropout'] if 'model_Dropout' in kwargs else 0.2
 
         super(Model_NLRE_with_Conv3d, self).__init__()
 

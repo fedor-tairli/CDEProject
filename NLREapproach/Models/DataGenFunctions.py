@@ -38,7 +38,7 @@ Pass_Truth    = NLRE_DataGen.Result_FullRecValues
 
 Pass_Rec      = Pass_Rec_DoNothing
 
-Pass_Graph    = NLRE_DataGen.Standard_Graph_Conv3d_Traces
+Pass_Graph    = NLRE_DataGen.Graph_Conv3d_Traces_and_RecValues
 
 Pass_MetaData = Pass_MetaData_DoNothing
 

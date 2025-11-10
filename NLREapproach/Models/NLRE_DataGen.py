@@ -100,7 +100,7 @@ def Result_FullRecValues(Dataset, ProcessingDataset):
     Rec_SDPPhi   = torch.zeros(len(Dataset),1)
 
     for i, Event in enumerate(Dataset):
-        if i%100 ==0: print(f'    Processing Main {i} / {len(Dataset)}',end='\r')
+        if i%100 ==0: print(f'    Processing Truth {i} / {len(Dataset)}',end='\r')
         ID = (Event.get_value('EventID_1/2').int()*10000 + Event.get_value('EventID_2/2').int()%10000).item()
         IDsList += (ID,)
 
@@ -112,8 +112,8 @@ def Result_FullRecValues(Dataset, ProcessingDataset):
         Gen_SDPTheta [i] = Event.get_value('Gen_SDPTheta')
         Gen_SDPPhi   [i] = Event.get_value('Gen_SDPPhi')
 
-        Gen_EventClass[i] = Event.get_value('Gen_EventClass')
-        Gen_Primary   [i] = Event.get_value('Gen_Primary')
+        Gen_EventClass[i] = Event.get_value('Event_Class')
+        Gen_Primary   [i] = Event.get_value('Primary')
         Gen_CosZenith [i] = Event.get_value('Gen_CosZenith')
         Gen_CherFrac  [i] = Event.get_value('Gen_CherenkovFraction')
 
@@ -195,5 +195,5 @@ def Aux_FullRecValues(Dataset, ProcessingDataset):
     if ProcessingDataset is None:
         return torch.zeros(len(Dataset),1)
     else:
-        return None
+        pass
 
