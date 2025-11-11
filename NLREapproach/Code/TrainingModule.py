@@ -330,6 +330,8 @@ def Train(model,Dataset,optimiser,scheduler,Loss,Validation,Metric,Tracker,\
                     break
                 else:
                     print(f'Error in batch {batchN}, Unknown, stopping training')
+                    # print(str(e))
+                    raise e
                     Tracker.Abort_Call_Reason = f'Error in batch {batchN}, {e}'
                     Tracker.Abort_Call = True
                     break

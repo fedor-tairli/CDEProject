@@ -25,16 +25,20 @@ def Loss(Pred,Truth,keys = ['LogE','Xmax','Chi0','Rp','SDPTheta','SDPPhi'],Retur
 
     '''
     # First, we expect pred to be a list of [predicted classes, RecValues]
-    assert not (isinstance(Pred,list) or isinstance(Pred, tuple) or isinstance(Pred, dict)), 'Predictions should be a list of [PredictedClasses, RecValues]'
+    assert isinstance(Pred,list) or isinstance(Pred, tuple) or isinstance(Pred, dict), 'Predictions should be a list of [PredictedClasses, RecValues]'
     
     Pred_Classes = Pred[0]
     RecValues    = Pred[1] # Augmented RecValues
-
+    
+    # Making Sure Devices are the same
+    RecValues = RecValues.to(Pred_Classes.device)
+    Truth     = Truth    .to(Pred_Classes.device)
+    
     # figure out the augmentation scale
-    assert RecValues.shape[0] % Truth.shape[0] != 0, 'Prediction and Truth sizes are not compatible, cannot determine augmentation scale'
+    assert RecValues.shape[0] % Truth.shape[0] == 0, f'Prediction and Truth sizes are not compatible, cannot determine augmentation scale {RecValues.shape[0]} vs {Truth.shape[0]}'
 
     Augmentation_Scale = RecValues.shape[0] // Truth.shape[0]
-    Truth_RecValues    = Truth.repeat(Augmentation_Scale,1)
+    Truth_RecValues    = Truth.repeat_interleave(Augmentation_Scale,dim = 0)
     Truth_Classes      = (RecValues == Truth_RecValues).float()
 
     # Now, calculate the weights for each guess\
@@ -53,7 +57,7 @@ def Loss(Pred,Truth,keys = ['LogE','Xmax','Chi0','Rp','SDPTheta','SDPPhi'],Retur
 
     losses = {}
     for i,key in enumerate(keys):
-        losses[key] = F.binary_cross_entropy(Pred_Classes[:,i],Truth_Classes[:,i],weights = weights[:,i])
+        losses[key] = F.binary_cross_entropy(Pred_Classes[:,i],Truth_Classes[:,i],weight = weights[:,i])
 
     losses['Total'] = sum(losses.values())
     if ReturnTensor: return losses
@@ -219,11 +223,11 @@ class Model_NLRE_with_Conv3d(nn.Module):
     def __init__(self,in_main_channels = (1,6), N_kernels = 32, N_dense_nodes = 128, **kwargs):
         # only one Main is expected
         assert len(in_main_channels) == 2, 'Expecting two Main Channels: Traces and RecValues'
-        in_main_channels = in_main_channels[0]
         in_RecValues_channels = in_main_channels[1]
+        in_main_channels = in_main_channels[0]
         assert in_RecValues_channels == 6, 'Expecting 6 RecValues Channels'
         self.kwargs = kwargs
-        dropout = kwargs['dropout'] if 'model_Dropout' in kwargs else 0.2
+        dropout = kwargs['model_Dropout'] if 'model_Dropout' in kwargs else 0.2
 
         super(Model_NLRE_with_Conv3d, self).__init__()
 
@@ -241,27 +245,31 @@ class Model_NLRE_with_Conv3d(nn.Module):
         self.Conv2 = Conv_Skip_Block_3d(in_channels=N_kernels, N_kernels=N_kernels, activation_function=self.Conv_Activation, kernel_size=(3,3,3), padding=(1,1,1), dropout=dropout)
         self.Conv3 = Conv_Skip_Block_3d(in_channels=N_kernels, N_kernels=N_kernels, activation_function=self.Conv_Activation, kernel_size=(3,3,3), padding=(1,1,1), dropout=dropout)
 
-        self.LogE1 = nn.Linear(N_kernels*40*20*20 + in_RecValues_channels, N_dense_nodes)
-        self.LogE2 = nn.Linear(N_dense_nodes, N_dense_nodes//2)
-        self.LogE3 = nn.Linear(N_dense_nodes//2, 1)
+        self.Dense1 = nn.Linear(N_kernels*40*20*20, N_dense_nodes)
+        self.Dense2 = nn.Linear(N_dense_nodes, N_dense_nodes)
+        self.Dense3 = nn.Linear(N_dense_nodes, N_dense_nodes)
 
-        self.Xmax1     = nn.Linear(N_kernels*40*20*20+in_RecValues_channels, N_dense_nodes)
+        self.LogE1     = nn.Linear(N_dense_nodes+in_RecValues_channels, N_dense_nodes)
+        self.LogE2     = nn.Linear(N_dense_nodes, N_dense_nodes//2)
+        self.LogE3     = nn.Linear(N_dense_nodes//2, 1)
+
+        self.Xmax1     = nn.Linear(N_dense_nodes+in_RecValues_channels, N_dense_nodes)
         self.Xmax2     = nn.Linear(N_dense_nodes, N_dense_nodes//2)
         self.Xmax3     = nn.Linear(N_dense_nodes//2, 1)
 
-        self.Chi0_1    = nn.Linear(N_kernels*40*20*20+in_RecValues_channels, N_dense_nodes)
+        self.Chi0_1    = nn.Linear(N_dense_nodes+in_RecValues_channels, N_dense_nodes)
         self.Chi0_2    = nn.Linear(N_dense_nodes, N_dense_nodes//2)
         self.Chi0_3    = nn.Linear(N_dense_nodes//2, 1)
 
-        self.Rp_1      = nn.Linear(N_kernels*40*20*20+in_RecValues_channels, N_dense_nodes)
+        self.Rp_1      = nn.Linear(N_dense_nodes+in_RecValues_channels, N_dense_nodes)
         self.Rp_2      = nn.Linear(N_dense_nodes, N_dense_nodes//2)
         self.Rp_3      = nn.Linear(N_dense_nodes//2, 1)
 
-        self.SDPTheta1 = nn.Linear(N_kernels*40*20*20+in_RecValues_channels, N_dense_nodes)
+        self.SDPTheta1 = nn.Linear(N_dense_nodes+in_RecValues_channels, N_dense_nodes)
         self.SDPTheta2 = nn.Linear(N_dense_nodes, N_dense_nodes//2)
         self.SDPTheta3 = nn.Linear(N_dense_nodes//2, 1)
 
-        self.SDPPhi1   = nn.Linear(N_kernels*40*20*20+in_RecValues_channels, N_dense_nodes)
+        self.SDPPhi1   = nn.Linear(N_dense_nodes+in_RecValues_channels, N_dense_nodes)
         self.SDPPhi2   = nn.Linear(N_dense_nodes, N_dense_nodes//2)
         self.SDPPhi3   = nn.Linear(N_dense_nodes//2, 1)
         
@@ -272,12 +280,12 @@ class Model_NLRE_with_Conv3d(nn.Module):
         assert Augmentation_Scale > 1, 'Augmentation Scale should be greater than 1'
 
         # Unpack the Graph Data to Main
-        device = self.Dense1.weight.device
+        device = self.conv0.weight.device
         NEvents = len(Graph)
         
         TraceMain = torch.zeros(NEvents,40   ,20,22)
         StartMain = torch.zeros(NEvents,1    ,20,22)
-        Main      = torch.zeros(NEvents,100  ,20,22) 
+        Main      = torch.zeros(NEvents,2100  ,20,22) 
         # Have to allocate this massive tenosr to avoid memory issues
         # Maybe there is a better way to do this, but for now i cannot think of it. # TODO
 
@@ -311,7 +319,10 @@ class Model_NLRE_with_Conv3d(nn.Module):
         # Flatten the output
         Main = Main.view(Main.shape[0],-1)
 
-        
+        Main = self.Dense_Dropout(self.Dense_Activation(self.Dense1(Main)))
+        Main = self.Dense_Dropout(self.Dense_Activation(self.Dense2(Main)))
+        Main = self.Dense_Dropout(self.Dense_Activation(self.Dense3(Main)))
+
         # Apply Augmentation
         if not self.training:
             Augmentation_Scale = 2
@@ -330,7 +341,8 @@ class Model_NLRE_with_Conv3d(nn.Module):
                 # Other functions to be added here
                 else:
                     raise NotImplementedError(f'Augmentation Function {Augmentation_Function} not implemented')
-                    
+            
+            
             Aug_Main = torch.cat([Main,Aug_RecVals.to(device)],dim=1)
         
 
@@ -378,5 +390,5 @@ class Model_NLRE_with_Conv3d(nn.Module):
 
         Preds             = torch.cat(Preds_list            ,dim=0)
         Augmented_RecVals = torch.cat(Augmented_RecVals_list,dim=0)
-
+        
         return [Preds,Augmented_RecVals]

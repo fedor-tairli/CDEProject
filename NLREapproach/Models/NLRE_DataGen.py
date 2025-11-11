@@ -20,19 +20,20 @@ def Graph_Conv3d_Traces_and_RecValues(Dataset,ProcessingDataset):
     '''Will just provide 1 mirror array of pixel traces'''
     IDsList = ()
     Graph = [] # Will have Event in dim1, [Trace,X,Y,PulseStart,RecValues] in dim2, values of dim2 in dim3
+    
     for i,Event in enumerate(Dataset):
         print(f'    Processing Main {i} / {len(Dataset)}',end='\r')
         ID = (Event.get_value('EventID_1/2').int()*10000 + Event.get_value('EventID_2/2').int()%10000).item()
         IDsList += (ID,)
 
-        Gen_Xmax     = torch.zeros(len(Dataset),1)
-        Gen_LogE     = torch.zeros(len(Dataset),1)
-        Gen_Chi0     = torch.zeros(len(Dataset),1)
-        Gen_Rp       = torch.zeros(len(Dataset),1)
-        Gen_SDPTheta = torch.zeros(len(Dataset),1)
-        Gen_SDPPhi   = torch.zeros(len(Dataset),1)
+        Gen_Xmax     = Event.get_value('Gen_Xmax')
+        Gen_LogE     = Event.get_value('Gen_LogE')
+        Gen_Chi0     = Event.get_value('Gen_Chi0')
+        Gen_Rp       = Event.get_value('Gen_Rp'  )
+        Gen_SDPTheta = Event.get_value('Gen_SDPTheta')
+        Gen_SDPPhi   = Event.get_value('Gen_SDPPhi'  )
 
-        Gen_RecValues = torch.stack((Gen_LogE,Gen_Xmax,Gen_Chi0,Gen_Rp,Gen_SDPTheta,Gen_SDPPhi),dim=1)
+        Gen_RecValues = torch.stack((Gen_LogE,Gen_Xmax,Gen_Chi0,Gen_Rp,Gen_SDPTheta,Gen_SDPPhi),dim=0)
         Traces = Event.get_trace_values()
         Pstart = Event.get_pixel_values('PulseStart')
         # Pstop  = Event.get_pixel_values('PulseStop')
@@ -163,11 +164,14 @@ def Result_FullRecValues(Dataset, ProcessingDataset):
     Gen_SDPPhi = (Gen_SDPPhi - SDPPhiMean) / SDPPhiStd
     Rec_SDPPhi = (Rec_SDPPhi - SDPPhiMean) / SDPPhiStd
 
-    Gen_Result = torch.stack((Gen_LogE,Gen_Xmax,Gen_Chi0,Gen_Rp,Gen_SDPTheta,Gen_SDPPhi),dim=1)
-    Rec_Result = torch.stack((Rec_LogE,Rec_Xmax,Rec_Chi0,Rec_Rp,Rec_SDPTheta,Rec_SDPPhi),dim=1)
+    Gen_Result = torch.stack((Gen_LogE,Gen_Xmax,Gen_Chi0,Gen_Rp,Gen_SDPTheta,Gen_SDPPhi),dim=1).squeeze()
+    Rec_Result = torch.stack((Rec_LogE,Rec_Xmax,Rec_Chi0,Rec_Rp,Rec_SDPTheta,Rec_SDPPhi),dim=1).squeeze()
 
     Aux_Values = torch.stack((Gen_LogE,Gen_Xmax,Gen_Chi0,Gen_Rp,Gen_SDPTheta,Gen_SDPPhi,
-                              Gen_EventClass,Gen_Primary,Gen_CosZenith,Gen_CherFrac),dim=1)
+                              Gen_EventClass,Gen_Primary,Gen_CosZenith,Gen_CherFrac),dim=1).squeeze()
+    
+    # print(f'Rec_SDPPhi Shape: {Rec_SDPPhi.shape}, resulting Rec Shape: {Rec_Result.shape}')
+    # print(f'Gen_SDPPhi Shape: {Gen_SDPPhi.shape}, resulting Gen Shape: {Gen_Result.shape}')
     
     if ProcessingDataset is None:
         return Gen_Result, Rec_Result
