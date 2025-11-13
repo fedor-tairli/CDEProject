@@ -159,12 +159,16 @@ if __name__ == '__main__' and not TestingThings:
         from TrainingModule import Train , Tracker
         from Model_NLRE import Loss as Loss_function
         from Model_NLRE import validate, metric
-        from Model_NLRE import Model_NLRE_with_Conv3d
+        from Model_NLRE import Model_NLRE_with_Conv3d , Model_NLRE_with_Conv3d_BatchShuffle
+        from Model_NLRE import Model_NLRE_with_Conv3d_AllIn, Model_NLRE_with_Conv3d_AllIn_BatchShuffle
+        from Model_NLRE import Model_NLRE_with_Conv3d_AllIn_BatchShuffle_SDPOnly
         
 
         
         Models = [
-            Model_NLRE_with_Conv3d,
+            # Model_NLRE_with_Conv3d,
+            # Model_NLRE_with_Conv3d_AllIn_BatchShuffle,
+            Model_NLRE_with_Conv3d_AllIn_BatchShuffle_SDPOnly,
             
         ]
         
@@ -195,9 +199,9 @@ if __name__ == '__main__' and not TestingThings:
         }
         
         Training_Parameters = {
-            'LR': 0.001,
+            'LR': 0.0001,
             'epochs': 10,
-            'BatchSize': 32,
+            'BatchSize': 64,
             'accumulation_steps': 1,
             'epoch_done': 0,
             'batchBreak': 1e99,

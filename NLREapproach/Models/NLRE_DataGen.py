@@ -32,6 +32,15 @@ def Graph_Conv3d_Traces_and_RecValues(Dataset,ProcessingDataset):
         Gen_Rp       = Event.get_value('Gen_Rp'  )
         Gen_SDPTheta = Event.get_value('Gen_SDPTheta')
         Gen_SDPPhi   = Event.get_value('Gen_SDPPhi'  )
+        
+        # Normalise reconstruction values here
+        Gen_Xmax     = (Gen_Xmax - 591    ) / 72
+        Gen_LogE     = (Gen_LogE - 16.15)   / 0.475
+        Gen_Chi0     = (Gen_Chi0 - 1.65   ) / 0.597
+        Gen_Rp       = (Gen_Rp   - 1269   ) / 713
+        Gen_SDPTheta = (Gen_SDPTheta - 1.57) / 0.5
+        Gen_SDPPhi   = (Gen_SDPPhi   - 0.0 ) / (3.14/2)
+
 
         Gen_RecValues = torch.stack((Gen_LogE,Gen_Xmax,Gen_Chi0,Gen_Rp,Gen_SDPTheta,Gen_SDPPhi),dim=0)
         Traces = Event.get_trace_values()
@@ -141,26 +150,26 @@ def Result_FullRecValues(Dataset, ProcessingDataset):
 
     # TODO:  Check Rp, Chi0, SDPTheta, SDPPhi Means and Stds
     # Chi0
-    Chi0Mean = 0.02
-    Chi0Std  = 0.01
+    Chi0Mean = 1.65
+    Chi0Std  = 0.597
     Gen_Chi0 = (Gen_Chi0 - Chi0Mean) / Chi0Std
     Rec_Chi0 = (Rec_Chi0 - Chi0Mean) / Chi0Std
 
     # Rp
-    RpMean = 6000
-    RpStd  = 2000
+    RpMean = 1269
+    RpStd  = 713
     Gen_Rp = (Gen_Rp - RpMean) / RpStd
     Rec_Rp = (Rec_Rp - RpMean) / RpStd
 
     # SDPTheta
-    SDPThetaMean = 1.0
+    SDPThetaMean = 1.57
     SDPThetaStd  = 0.5
     Gen_SDPTheta = (Gen_SDPTheta - SDPThetaMean) / SDPThetaStd
     Rec_SDPTheta = (Rec_SDPTheta - SDPThetaMean) / SDPThetaStd
 
     # SDPPhi
     SDPPhiMean = 0.0
-    SDPPhiStd  = 3.14
+    SDPPhiStd  = 3.14/2
     Gen_SDPPhi = (Gen_SDPPhi - SDPPhiMean) / SDPPhiStd
     Rec_SDPPhi = (Rec_SDPPhi - SDPPhiMean) / SDPPhiStd
 

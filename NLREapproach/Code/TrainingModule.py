@@ -279,7 +279,6 @@ def Train(model,Dataset,optimiser,scheduler,Loss,Validation,Metric,Tracker,\
         
         for _, BatchMains, BatchAux, BatchTruth, _ in Dataset: # Dataset Event index is not used
             try:
-                # Check if the Event is okay i guess
                 if batchN > batchBreak:
                     break
                 
@@ -312,6 +311,12 @@ def Train(model,Dataset,optimiser,scheduler,Loss,Validation,Metric,Tracker,\
                     break
                 # Do CUDA garbage collection
                 torch.cuda.empty_cache()
+
+            except KeyboardInterrupt:
+                print('Keyboard Interrupt, stopping training')
+                Tracker.Abort_Call_Reason = 'Keyboard Interrupt'
+                Tracker.Abort_Call = True
+                break
             except Exception as e:
 
                 if 'CUDA out of memory' in str(e):
@@ -323,15 +328,10 @@ def Train(model,Dataset,optimiser,scheduler,Loss,Validation,Metric,Tracker,\
                         Tracker.Abort_Call_Reason = 'Too many CUDA out of memory errors'
                         Tracker.Abort_Call = True
                         break
-                if 'KeyboardInterrupt' in str(e):
-                    print('Keyboard Interrupt, stopping training')
-                    Tracker.Abort_Call_Reason = 'Keyboard Interrupt'
-                    Tracker.Abort_Call = True
-                    break
                 else:
                     print(f'Error in batch {batchN}, Unknown, stopping training')
                     # print(str(e))
-                    raise e
+                    # raise e
                     Tracker.Abort_Call_Reason = f'Error in batch {batchN}, {e}'
                     Tracker.Abort_Call = True
                     break
