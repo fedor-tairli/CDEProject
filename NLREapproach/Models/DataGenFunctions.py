@@ -34,11 +34,11 @@ Pass_Main     = Pass_Main_DoNothing
 
 Pass_Aux      = NLRE_DataGen.Aux_FullRecValues
 
-Pass_Truth    = NLRE_DataGen.Result_FullRecValues
+Pass_Truth    = NLRE_DataGen.Result_SDPRecValues
 
 Pass_Rec      = Pass_Rec_DoNothing
 
-Pass_Graph    = NLRE_DataGen.Graph_Conv3d_Traces_and_RecValues
+Pass_Graph    = NLRE_DataGen.Main_Conv2d_Grid_Charge_and_Time
 
 Pass_MetaData = Pass_MetaData_DoNothing
 

@@ -114,7 +114,7 @@ if __name__ == '__main__' and not TestingThings:
     NeedTraces           = True
     LoadModel            = False
     DoNotTrain           = False
-    DatasetName          = 'NLRE_Dataset' #No / or .pt JUST NAME, eg GraphStructure  Use None to save as default
+    DatasetName          = 'NLRE_SDP_Dataset' #No / or .pt JUST NAME, eg GraphStructure  Use None to save as default
 
 
     if DoNotTrain: assert RecalculateDataset, 'Recalculate Dataset must be True if DoNotTrain is True'
@@ -157,18 +157,22 @@ if __name__ == '__main__' and not TestingThings:
     if not DoNotTrain:
         # import model
         from TrainingModule import Train , Tracker
-        from Model_NLRE import Loss as Loss_function
-        from Model_NLRE import validate, metric
-        from Model_NLRE import Model_NLRE_with_Conv3d , Model_NLRE_with_Conv3d_BatchShuffle
-        from Model_NLRE import Model_NLRE_with_Conv3d_AllIn, Model_NLRE_with_Conv3d_AllIn_BatchShuffle
-        from Model_NLRE import Model_NLRE_with_Conv3d_AllIn_BatchShuffle_SDPOnly
+        # from Model_NLRE import Loss as Loss_function
+        # from Model_NLRE import validate, metric
+        # from Model_NLRE import Model_NLRE_with_Conv3d , Model_NLRE_with_Conv3d_BatchShuffle
+        # from Model_NLRE import Model_NLRE_with_Conv3d_AllIn, Model_NLRE_with_Conv3d_AllIn_BatchShuffle
+        # from Model_NLRE import Model_NLRE_with_Conv3d_AllIn_BatchShuffle_SDPOnly
         
+        from Model_NLRE_SDP import Loss as Loss_function
+        from Model_NLRE_SDP import validate, metric
+        from Model_NLRE_SDP import Model_SDP_NLRE_with_Conv , Model_SDP_NLRE_with_Conv_GaussianShift
 
-        
         Models = [
+            # Model_SDP_NLRE_with_Conv,
+            Model_SDP_NLRE_with_Conv_GaussianShift,
             # Model_NLRE_with_Conv3d,
             # Model_NLRE_with_Conv3d_AllIn_BatchShuffle,
-            Model_NLRE_with_Conv3d_AllIn_BatchShuffle_SDPOnly,
+            # Model_NLRE_with_Conv3d_AllIn_BatchShuffle_SDPOnly,
             
         ]
         
@@ -184,7 +188,7 @@ if __name__ == '__main__' and not TestingThings:
 
         # Model Parameters 
         Model_Parameters = {
-            'in_main_channels': (1,6),
+            'in_main_channels': (2,2),
             'in_node_channels': 5   ,
             'in_edge_channels': 2   ,
             'in_aux_channels' : 0   ,

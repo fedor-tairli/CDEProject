@@ -331,7 +331,7 @@ def Train(model,Dataset,optimiser,scheduler,Loss,Validation,Metric,Tracker,\
                 else:
                     print(f'Error in batch {batchN}, Unknown, stopping training')
                     # print(str(e))
-                    # raise e
+                    raise e
                     Tracker.Abort_Call_Reason = f'Error in batch {batchN}, {e}'
                     Tracker.Abort_Call = True
                     break
@@ -347,8 +347,15 @@ def Train(model,Dataset,optimiser,scheduler,Loss,Validation,Metric,Tracker,\
         # Validation and Early stopping # metric is a str to be printed
         val_losses  = Validation(model,Dataset,Loss,device)
         val_loss    = val_losses['Total'] # Needed for scheduler step below
-        print('Calculating Val Metrics')
+        # print('Calculating Val Metrics')
         val_metrics = Metric(model,Dataset,device,keys=Dataset.Truth_Keys)
+        
+        if type(val_metrics) == dict and 'Units' in val_metrics:
+            val_metric_units = val_metrics['Units']
+            val_metrics.pop('Units')
+            # print(f'Found Units from metric function: {val_metric_units}')
+        else:
+            val_metric_units = Dataset.Truth_Units
 
         if True: # Scheduler Step is done here
             if val_loss < Min_Val_Loss*(1-tolerance):
@@ -360,7 +367,7 @@ def Train(model,Dataset,optimiser,scheduler,Loss,Validation,Metric,Tracker,\
 
 
         Info = {'EpochLoss': epoch_loss, 'EpochValLoss':val_losses,'ModelState':model.state_dict(),\
-                'EpochMetric':val_metrics, 'MetricUnits':Dataset.Truth_Units,
+                'EpochMetric':val_metrics, 'MetricUnits':val_metric_units,
                 } # Information required for the Tracker at this stage
         Tracker.EpochEnd(Info)
         
@@ -370,7 +377,9 @@ def Train(model,Dataset,optimiser,scheduler,Loss,Validation,Metric,Tracker,\
             break
         if plotOnEpochCompletionPath!=None:
             PlotOnEpoch(Dataset,model,i,plotOnEpochCompletionPath,device)
-
+        print('-------------------------------------')
+        
     if LogPath is not None:
         Tracker.MakeLog(LogPath,model.Name)
+        print(f'Made Log at {LogPath}')
     return model,Tracker
