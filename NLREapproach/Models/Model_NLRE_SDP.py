@@ -52,7 +52,7 @@ def Loss(Pred,Truth,keys = ['SDPTheta','SDPPhi'],ReturnTensor = True):
     weights[label_T & guess_T] = 1 # Nominal weight # Aug.Mag = 0 here
     weights[label_T & guess_F] = 5 # High weight    # Aug.Mag = 0 here
     weights[label_F & guess_F] = 2 # increased weight # Aug.Mag doesnt matter here
-    weights[label_F & guess_T] = Augmentation_magnitude[label_F & guess_T] 
+    weights[label_F & guess_T] = Augmentation_magnitude[label_F & guess_T]* 5
     
 
     losses = {}
@@ -568,7 +568,7 @@ class Model_SDP_NLRE_with_Conv(nn.Module):
                     Aug_RecVals = RecVals[torch.randperm(RecVals.shape[0])]
                 elif Augmentation_Function == 'GaussianShift':
                     gaussian_shift = torch.randn(RecVals.shape[0],RecVals.shape[1]).to(RecVals.device)
-                    Aug_RecVals = RecVals + gaussian_shift*5
+                    Aug_RecVals = RecVals + gaussian_shift * 5* torch.pi/180.0
                 else:
                     raise NotImplementedError(f'Augmentation Function {Augmentation_Function} not implemented')
 

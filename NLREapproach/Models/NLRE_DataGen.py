@@ -239,6 +239,15 @@ def Main_Conv2d_Grid_Charge_and_Time(Dataset,ProcessingDataset):
         TelIDs        = Event.get_pixel_values('TelID')
         Charge        = Event.get_pixel_values('Charge')
         PulseCentroid = Event.get_pixel_values('PulseCentroid')
+        Status        = Event.get_pixel_values('Status')
+
+        PixelIDs      = PixelIDs     [Status>=2]
+        TelIDs        = TelIDs       [Status>=2]
+        Charge        = Charge       [Status>=2]
+        PulseCentroid = PulseCentroid[Status>=2]
+        Status        = Status       [Status>=2]
+        if Status.numel() == 0:
+            continue
         PulseCentroid_ZeroMask = PulseCentroid != 0
         # Normalise
         Charge = torch.log10(torch.clamp_min(Charge,0)+1)/3.75
