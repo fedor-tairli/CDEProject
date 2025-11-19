@@ -39,8 +39,7 @@ def Loss(Pred,Truth,keys = ['SDPTheta','SDPPhi'],ReturnTensor = True):
 
     Augmentation_Scale = RecValues.shape[0] // Truth.shape[0]
     Truth_RecValues    = Truth.repeat_interleave(Augmentation_Scale,dim = 0)
-    Truth_Classes      = (RecValues == Truth_RecValues).float()
-
+    Truth_Classes = (torch.abs(RecValues - Truth_RecValues) < 1e-3).float()
     # Now, calculate the weights for each guess
     Augmentation_magnitude = torch.abs(RecValues - Truth_RecValues)
     weights = torch.ones_like(Truth_Classes)
@@ -555,7 +554,9 @@ class Model_SDP_NLRE_with_Conv(nn.Module):
                 Augmentation_Scale = 4
             else:
                 Augmentation_Scale = 2
-                
+        if Augmentation_Function == 'GaussianShift_Separated':
+            Augmentation_Scale = max(Augmentation_Scale,4)
+
         Preds_list             = []
         Augmented_RecVals_list = []
 
@@ -566,9 +567,25 @@ class Model_SDP_NLRE_with_Conv(nn.Module):
             else:
                 if Augmentation_Function == 'BatchShuffle':
                     Aug_RecVals = RecVals[torch.randperm(RecVals.shape[0])]
+                
                 elif Augmentation_Function == 'GaussianShift':
                     gaussian_shift = torch.randn(RecVals.shape[0],RecVals.shape[1]).to(RecVals.device)
                     Aug_RecVals = RecVals + gaussian_shift * 5* torch.pi/180.0
+                
+                elif Augmentation_Function == 'GaussianShift_Separated':
+                    assert Augmentation_Scale > 3, 'GaussianShift_Separated requires Augmentation Scale > 3'
+                    if aug_step == 1: # Only augment Theta
+                        gaussian_shift = torch.randn(RecVals.shape[0],1).to(RecVals.device)
+                        Aug_RecVals = RecVals.clone()
+                        Aug_RecVals[:,0:1] = RecVals[:,0:1] + gaussian_shift * 5* torch.pi/180.0
+                    elif aug_step == 2: # Only augment Phi
+                        gaussian_shift = torch.randn(RecVals.shape[0],1).to(RecVals.device)
+                        Aug_RecVals = RecVals.clone()
+                        Aug_RecVals[:,1:2] = RecVals[:,1:2] + gaussian_shift * 5* torch.pi/180.0
+                    elif aug_step > 2: # Augment Both
+                        gaussian_shift = torch.randn(RecVals.shape[0],2).to(RecVals.device)
+                        Aug_RecVals = RecVals + gaussian_shift * 5* torch.pi/180.0
+
                 else:
                     raise NotImplementedError(f'Augmentation Function {Augmentation_Function} not implemented')
 
@@ -613,5 +630,25 @@ class Model_SDP_NLRE_with_Conv_GaussianShift(Model_SDP_NLRE_with_Conv):
 
 
     def forward(self,Main,Aux,Augmentation_Scale = None, Augmentation_Function = 'GaussianShift'):
+        return super().forward(Main,Aux,Augmentation_Scale,Augmentation_Function)
+    
+
+class Model_SDP_NLRE_with_Conv_GaussianShiftSeparated(Model_SDP_NLRE_with_Conv):
+    Name = 'Model_SDP_NLRE_with_Conv_GaussianShiftSeparated'
+    Description = '''
+    Convolutional Neural Network for SDP Reconstruction
+    Uses standard Conv2d Layers in blocks with residual connections
+    Reconstruction is done for triple telescopes
+    First split, and run the input conv on 3 telescopes individually
+    Then concatenate the results and run  main conv layers
+    This model does not do max pooling
+    Uses Gaussian Shift augmentation, separating Theta and Phi shifts
+    '''
+
+    def __init__(self,**kwargs):
+        super(Model_SDP_NLRE_with_Conv_GaussianShiftSeparated, self).__init__(**kwargs)
+
+
+    def forward(self,Main,Aux,Augmentation_Scale = None, Augmentation_Function = 'GaussianShift_Separated'):
         return super().forward(Main,Aux,Augmentation_Scale,Augmentation_Function)
         

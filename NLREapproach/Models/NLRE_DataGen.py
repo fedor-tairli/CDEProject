@@ -241,11 +241,11 @@ def Main_Conv2d_Grid_Charge_and_Time(Dataset,ProcessingDataset):
         PulseCentroid = Event.get_pixel_values('PulseCentroid')
         Status        = Event.get_pixel_values('Status')
 
-        PixelIDs      = PixelIDs     [Status>=2]
-        TelIDs        = TelIDs       [Status>=2]
-        Charge        = Charge       [Status>=2]
-        PulseCentroid = PulseCentroid[Status>=2]
-        Status        = Status       [Status>=2]
+        PixelIDs      = PixelIDs     [Status>=4]
+        TelIDs        = TelIDs       [Status>=4]
+        Charge        = Charge       [Status>=4]
+        PulseCentroid = PulseCentroid[Status>=4]
+        Status        = Status       [Status>=4]
         if Status.numel() == 0:
             continue
         PulseCentroid_ZeroMask = PulseCentroid != 0

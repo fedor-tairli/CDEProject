@@ -110,11 +110,11 @@ if __name__ == '__main__' and not TestingThings:
     Use_Test_Set         = False
     Use_All_Sets         = True
     Dataset_RandomIter   = True
-    RecalculateDataset   = True
+    RecalculateDataset   = False
     NeedTraces           = True
     LoadModel            = False
     DoNotTrain           = False
-    DatasetName          = 'NLRE_SDP_Dataset' #No / or .pt JUST NAME, eg GraphStructure  Use None to save as default
+    DatasetName          = 'NLRE_SDP_Dataset_PixStatus4' #No / or .pt JUST NAME, eg GraphStructure  Use None to save as default
 
 
     if DoNotTrain: assert RecalculateDataset, 'Recalculate Dataset must be True if DoNotTrain is True'
@@ -165,11 +165,12 @@ if __name__ == '__main__' and not TestingThings:
         
         from Model_NLRE_SDP import Loss as Loss_function
         from Model_NLRE_SDP import validate, metric
-        from Model_NLRE_SDP import Model_SDP_NLRE_with_Conv , Model_SDP_NLRE_with_Conv_GaussianShift
+        from Model_NLRE_SDP import Model_SDP_NLRE_with_Conv , Model_SDP_NLRE_with_Conv_GaussianShift, Model_SDP_NLRE_with_Conv_GaussianShiftSeparated
 
         Models = [
             # Model_SDP_NLRE_with_Conv,
             Model_SDP_NLRE_with_Conv_GaussianShift,
+            # Model_SDP_NLRE_with_Conv_GaussianShiftSeparated,
             # Model_NLRE_with_Conv3d,
             # Model_NLRE_with_Conv3d_AllIn_BatchShuffle,
             # Model_NLRE_with_Conv3d_AllIn_BatchShuffle_SDPOnly,
