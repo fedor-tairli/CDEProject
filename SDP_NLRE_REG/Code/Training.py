@@ -112,7 +112,8 @@ if __name__ == '__main__' and not TestingThings:
     Dataset_RandomIter   = True
     RecalculateDataset   = False
     NeedTraces           = True
-    LoadModel            = False
+    # LoadModel            = False # Can be bool or str path to model/tracker
+    LoadModel = '/remote/tychodata/ftairli/work/CDEs/SDP_NLRE_REG/Models/Model_SDP_NLRE_and_Regression_RegressionOnly.pt'
     DoNotTrain           = False
     DatasetName          = 'NLRE_SDP_Dataset_PixStatus4' #No / or .pt JUST NAME, eg GraphStructure  Use None to save as default
 
@@ -165,9 +166,12 @@ if __name__ == '__main__' and not TestingThings:
         from Model_SDP_NLRE_and_Regression import validate_Reg as validate, metric_Reg as metric
 
         from Model_SDP_NLRE_and_Regression import Model_SDP_NLRE_and_Regression_RegressionOnly
+        from Model_SDP_NLRE_and_Regression import Model_SDP_NLRE_and_Regression_SDPThetaOnly , Model_SDP_NLRE_and_Regression_SDPPhiOnly
         
         Models = [
-            Model_SDP_NLRE_and_Regression_RegressionOnly,
+            # Model_SDP_NLRE_and_Regression_RegressionOnly,
+            Model_SDP_NLRE_and_Regression_SDPThetaOnly,
+            Model_SDP_NLRE_and_Regression_SDPPhiOnly
         ]
         
         if SelectNetwork is not None:
@@ -186,9 +190,9 @@ if __name__ == '__main__' and not TestingThings:
             'in_node_channels': 5   ,
             'in_edge_channels': 2   ,
             'in_aux_channels' : 0   ,
-            'N_kernels'       : 64  ,
+            'N_kernels'       : 128  ,
             'N_heads'         : 16  ,
-            'N_dense_nodes'   : 256  ,
+            'N_dense_nodes'   : 512  ,
             'N_LSTM_nodes'    : 5  ,
             'N_LSTM_layers'   : 3   ,
             'kernel_size'     : 10  ,
@@ -199,7 +203,7 @@ if __name__ == '__main__' and not TestingThings:
         Training_Parameters = {
             'LR': 0.0001,
             'epochs': 15,
-            'BatchSize': 32,
+            'BatchSize': 64,
             'accumulation_steps': 1,
             'epoch_done': 0,
             'batchBreak': 1e99,

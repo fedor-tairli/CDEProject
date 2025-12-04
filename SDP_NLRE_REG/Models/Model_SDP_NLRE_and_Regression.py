@@ -63,7 +63,12 @@ def Loss_Reg(Pred,Truth,keys = ['SDPTheta','SDPPhi'],ReturnTensor = True):
         label_T = Truth_Classes == 1
         label_F = Truth_Classes == 0 
         weights[label_T] = Augmentation_Scale # Need to balance the positives and negatives
-        weights[label_F] = Augmentation_magnitude[label_F]* 5 * Pred_Classes[label_F].detach()
+        weights[label_F] = Augmentation_magnitude[label_F]* 5 * Pred_Classes[label_F]
+        weights = weights.detach()
+        
+
+        
+        
         
     
     if Train_Style in ['Regression','Both']:
@@ -78,7 +83,12 @@ def Loss_Reg(Pred,Truth,keys = ['SDPTheta','SDPPhi'],ReturnTensor = True):
     losses = {}
     for i,key in enumerate(keys):
         if Train_Style in ['Regression','Both']:
-            losses[key+'_Reg'] = F.mse_loss(Reg_Values[:,i],Truth[:,i])
+            if 'SDPTheta' in key:
+                losses[key+'_Reg'] = F.mse_loss(Reg_Values[:,0:2],Truth[:,0:2])
+            elif 'SDPPhi' in key:
+                losses[key+'_Reg'] = F.mse_loss(Reg_Values[:,2:4],Truth[:,2:4])
+            else:
+                raise ValueError(f'Key {key} not recognized for Regression Loss')
         else:
             losses[key+'_Reg'] = torch.zeros(1).to(Device)
         
@@ -197,13 +207,13 @@ def metric_Reg(model,Dataset,device,keys=['SDPTheta','SDPPhi'],BatchSize = 64,me
             Truths .append(BatchTruth  .to('cpu'))
 
     Truths  = torch.cat(Truths ,dim=0)
+    RegTruths = Truths.clone()
 
     if TrainType in ['Classification','Both']:
         Preds   = torch.cat(Preds  ,dim=0)
         RecVals = torch.cat(RecVals,dim=0)
         # Augmentation scale
         Augmentation_Scale = RecVals.shape[0] // Truths.shape[0]
-        RegTruths = Truths.clone()
         Truths = Truths.repeat_interleave(Augmentation_Scale,dim = 0)
 
         Truth_labels = (RecVals == Truths).float()
@@ -214,7 +224,6 @@ def metric_Reg(model,Dataset,device,keys=['SDPTheta','SDPPhi'],BatchSize = 64,me
         RegVals_Theta = torch.atan2(RegVals[:,0],RegVals[:,1]).unsqueeze(1)
         RegVals_Phi   = torch.atan2(RegVals[:,2],RegVals[:,3]).unsqueeze(1)
         RegVals = torch.cat([RegVals_Theta,RegVals_Phi],dim=1)
-        RegTruths = Truths.clone()
 
     metrics = {'Units':[]}
     
@@ -434,6 +443,8 @@ class Model_SDP_NLRE_and_Regression(nn.Module):
                     Aug_Rec_Theta = Regression_Expectation_Theta + aug_step * Augmentation_Magnitude * self.InWeights[0]
                     Aug_Rec_Phi   = Regression_Expectation_Phi   + aug_step * Augmentation_Magnitude * self.InWeights[1]
                 
+                    These_Aug_RecVals = torch.cat([Aug_Rec_Theta,Aug_Rec_Phi],dim=1)
+                    Augmented_RecVals_list.append(These_Aug_RecVals)
                 
                     # Aug Rec Vals Are the :
                     # - Augmented Reconstruction Value Theta/Phi, depending on the model we are Training
@@ -462,12 +473,9 @@ class Model_SDP_NLRE_and_Regression(nn.Module):
 
                     These_Preds = torch.cat([Theta,Phi],dim=1)
                     Preds_list.append(These_Preds)
-                    These_Aug_RecVals = torch.cat([Aug_Rec_Theta,Aug_Rec_Phi],dim=1)
-                    Augmented_RecVals_list.append(These_Aug_RecVals)
             else:
                 raise NotImplementedError(f'Augmentation Function {Augmentation_Function} not implemented')
             
-
             Preds             = torch.stack(Preds_list            ,dim=0)
             Augmented_RecVals = torch.stack(Augmented_RecVals_list,dim=0)
             
@@ -552,31 +560,33 @@ class Model_SDP_NLRE_and_Regression_SDPThetaOnly(Model_SDP_NLRE_and_Regression):
         # Apply the pre-trained weights if provided
         if 'RegressionBlockWeighs' in kwargs:
             pretrained_weights = kwargs['RegressionBlockWeighs']
-            self.conv_0_large.load_state_dict(pretrained_weights['conv_0_large'])
-            self.conv_0_small.load_state_dict(pretrained_weights['conv_0_small'])
-            self.conv_0      .load_state_dict(pretrained_weights['conv_0'])
-            self.conv_1      .load_state_dict(pretrained_weights['conv_1'])
-            self.conv_2      .load_state_dict(pretrained_weights['conv_2'])
-            self.conv_3      .load_state_dict(pretrained_weights['conv_3'])
-            self.conv_4      .load_state_dict(pretrained_weights['conv_4'])
-            self.conv_5      .load_state_dict(pretrained_weights['conv_5'])
+            # print(pretrained_weights)
+            self.load_state_dict(pretrained_weights)
+            # self.conv_0_large.load_state_dict(pretrained_weights['conv_0_large'])
+            # self.conv_0_small.load_state_dict(pretrained_weights['conv_0_small'])
+            # self.conv_0      .load_state_dict(pretrained_weights['conv_0'])
+            # self.conv_1      .load_state_dict(pretrained_weights['conv_1'])
+            # self.conv_2      .load_state_dict(pretrained_weights['conv_2'])
+            # self.conv_3      .load_state_dict(pretrained_weights['conv_3'])
+            # self.conv_4      .load_state_dict(pretrained_weights['conv_4'])
+            # self.conv_5      .load_state_dict(pretrained_weights['conv_5'])
 
-            self.BN_0        .load_state_dict(pretrained_weights['BN_0'])
-            self.BN_1        .load_state_dict(pretrained_weights['BN_1'])
-            self.BN_2        .load_state_dict(pretrained_weights['BN_2'])
-            self.BN_3        .load_state_dict(pretrained_weights['BN_3'])
-            self.BN_4        .load_state_dict(pretrained_weights['BN_4'])
-            self.BN_5        .load_state_dict(pretrained_weights['BN_5'])
+            # self.BN_0        .load_state_dict(pretrained_weights['BN_0'])
+            # self.BN_1        .load_state_dict(pretrained_weights['BN_1'])
+            # self.BN_2        .load_state_dict(pretrained_weights['BN_2'])
+            # self.BN_3        .load_state_dict(pretrained_weights['BN_3'])
+            # self.BN_4        .load_state_dict(pretrained_weights['BN_4'])
+            # self.BN_5        .load_state_dict(pretrained_weights['BN_5'])
 
-            self.Dense1        .load_state_dict(pretrained_weights['Dense1'])
-            self.Dense2        .load_state_dict(pretrained_weights['Dense2'])
-            self.Dense3        .load_state_dict(pretrained_weights['Dense3'])
-            self.SDPTheta_Reg1 .load_state_dict(pretrained_weights['SDPTheta_Reg1'])
-            self.SDPTheta_Reg2 .load_state_dict(pretrained_weights['SDPTheta_Reg2'])
-            self.SDPTheta_Reg3 .load_state_dict(pretrained_weights['SDPTheta_Reg3'])
-            self.SDPPhi_Reg1   .load_state_dict(pretrained_weights['SDPPhi_Reg1'])
-            self.SDPPhi_Reg2   .load_state_dict(pretrained_weights['SDPPhi_Reg2'])
-            self.SDPPhi_Reg3   .load_state_dict(pretrained_weights['SDPPhi_Reg3'])
+            # self.Dense1        .load_state_dict(pretrained_weights['Dense1'])
+            # self.Dense2        .load_state_dict(pretrained_weights['Dense2'])
+            # self.Dense3        .load_state_dict(pretrained_weights['Dense3'])
+            # self.SDPTheta_Reg1 .load_state_dict(pretrained_weights['SDPTheta_Reg1'])
+            # self.SDPTheta_Reg2 .load_state_dict(pretrained_weights['SDPTheta_Reg2'])
+            # self.SDPTheta_Reg3 .load_state_dict(pretrained_weights['SDPTheta_Reg3'])
+            # self.SDPPhi_Reg1   .load_state_dict(pretrained_weights['SDPPhi_Reg1'])
+            # self.SDPPhi_Reg2   .load_state_dict(pretrained_weights['SDPPhi_Reg2'])
+            # self.SDPPhi_Reg3   .load_state_dict(pretrained_weights['SDPPhi_Reg3'])
 
 
 class Model_SDP_NLRE_and_Regression_SDPPhiOnly(Model_SDP_NLRE_and_Regression):
@@ -600,29 +610,30 @@ class Model_SDP_NLRE_and_Regression_SDPPhiOnly(Model_SDP_NLRE_and_Regression):
         # Apply the pre-trained weights if provided
         if 'RegressionBlockWeighs' in kwargs:
             pretrained_weights = kwargs['RegressionBlockWeighs']
-            self.conv_0_large.load_state_dict(pretrained_weights['conv_0_large'])
-            self.conv_0_small.load_state_dict(pretrained_weights['conv_0_small'])
-            self.conv_0      .load_state_dict(pretrained_weights['conv_0'])
-            self.conv_1      .load_state_dict(pretrained_weights['conv_1'])
-            self.conv_2      .load_state_dict(pretrained_weights['conv_2'])
-            self.conv_3      .load_state_dict(pretrained_weights['conv_3'])
-            self.conv_4      .load_state_dict(pretrained_weights['conv_4'])
-            self.conv_5      .load_state_dict(pretrained_weights['conv_5'])
+            self.load_state_dict(pretrained_weights)
+            # self.conv_0_large.load_state_dict(pretrained_weights['conv_0_large'])
+            # self.conv_0_small.load_state_dict(pretrained_weights['conv_0_small'])
+            # self.conv_0      .load_state_dict(pretrained_weights['conv_0'])
+            # self.conv_1      .load_state_dict(pretrained_weights['conv_1'])
+            # self.conv_2      .load_state_dict(pretrained_weights['conv_2'])
+            # self.conv_3      .load_state_dict(pretrained_weights['conv_3'])
+            # self.conv_4      .load_state_dict(pretrained_weights['conv_4'])
+            # self.conv_5      .load_state_dict(pretrained_weights['conv_5'])
 
-            self.BN_0        .load_state_dict(pretrained_weights['BN_0'])
-            self.BN_1        .load_state_dict(pretrained_weights['BN_1'])
-            self.BN_2        .load_state_dict(pretrained_weights['BN_2'])
-            self.BN_3        .load_state_dict(pretrained_weights['BN_3'])
-            self.BN_4        .load_state_dict(pretrained_weights['BN_4'])
-            self.BN_5        .load_state_dict(pretrained_weights['BN_5'])
+            # self.BN_0        .load_state_dict(pretrained_weights['BN_0'])
+            # self.BN_1        .load_state_dict(pretrained_weights['BN_1'])
+            # self.BN_2        .load_state_dict(pretrained_weights['BN_2'])
+            # self.BN_3        .load_state_dict(pretrained_weights['BN_3'])
+            # self.BN_4        .load_state_dict(pretrained_weights['BN_4'])
+            # self.BN_5        .load_state_dict(pretrained_weights['BN_5'])
 
-            self.Dense1        .load_state_dict(pretrained_weights['Dense1'])
-            self.Dense2        .load_state_dict(pretrained_weights['Dense2'])
-            self.Dense3        .load_state_dict(pretrained_weights['Dense3'])
-            self.SDPTheta_Reg1 .load_state_dict(pretrained_weights['SDPTheta_Reg1'])
-            self.SDPTheta_Reg2 .load_state_dict(pretrained_weights['SDPTheta_Reg2'])
-            self.SDPTheta_Reg3 .load_state_dict(pretrained_weights['SDPTheta_Reg3'])
-            self.SDPPhi_Reg1   .load_state_dict(pretrained_weights['SDPPhi_Reg1'])
-            self.SDPPhi_Reg2   .load_state_dict(pretrained_weights['SDPPhi_Reg2'])
-            self.SDPPhi_Reg3   .load_state_dict(pretrained_weights['SDPPhi_Reg3'])
+            # self.Dense1        .load_state_dict(pretrained_weights['Dense1'])
+            # self.Dense2        .load_state_dict(pretrained_weights['Dense2'])
+            # self.Dense3        .load_state_dict(pretrained_weights['Dense3'])
+            # self.SDPTheta_Reg1 .load_state_dict(pretrained_weights['SDPTheta_Reg1'])
+            # self.SDPTheta_Reg2 .load_state_dict(pretrained_weights['SDPTheta_Reg2'])
+            # self.SDPTheta_Reg3 .load_state_dict(pretrained_weights['SDPTheta_Reg3'])
+            # self.SDPPhi_Reg1   .load_state_dict(pretrained_weights['SDPPhi_Reg1'])
+            # self.SDPPhi_Reg2   .load_state_dict(pretrained_weights['SDPPhi_Reg2'])
+            # self.SDPPhi_Reg3   .load_state_dict(pretrained_weights['SDPPhi_Reg3'])
 
