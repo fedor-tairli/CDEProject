@@ -40,20 +40,22 @@ def Loss(Pred,Truth,keys = ['SDPTheta','SDPPhi'],ReturnTensor = True):
     Augmentation_Scale = RecValues.shape[0] // Truth.shape[0]
     Truth_RecValues    = Truth.repeat_interleave(Augmentation_Scale,dim = 0)
     Truth_Classes = (torch.abs(RecValues - Truth_RecValues) < 1e-3).float()
+    
     # Now, calculate the weights for each guess
     Augmentation_magnitude = torch.abs(RecValues - Truth_RecValues)
+    
     weights = torch.ones_like(Truth_Classes)
     label_T = Truth_Classes == 1
     label_F = Truth_Classes == 0 
     guess_T = Pred_Classes >= 0.5
-    guess_F = Pred_Classes <  0.5
-
-    weights[label_T & guess_T] = 1 # Nominal weight # Aug.Mag = 0 here
-    weights[label_T & guess_F] = 5 # High weight    # Aug.Mag = 0 here
-    weights[label_F & guess_F] = 2 # increased weight # Aug.Mag doesnt matter here
-    weights[label_F & guess_T] = Augmentation_magnitude[label_F & guess_T]* 5
+    guess_F = (Pred_Classes <  0.5) & (Pred_Classes >= 0.0)
     
-
+    
+    weights[label_T & guess_T] = Augmentation_Scale 
+    weights[label_T & guess_F] = Augmentation_Scale # Need to balance the positives and negatives
+    weights[label_F & guess_F] = Augmentation_magnitude[label_F & guess_F]* 5 * Pred_Classes[label_F & guess_F].detach()
+    weights[label_F & guess_T] = Augmentation_magnitude[label_F & guess_T]* 5 
+    
     losses = {}
     for i,key in enumerate(keys):
         losses[key] = F.binary_cross_entropy(Pred_Classes[:,i],Truth_Classes[:,i],weight = weights[:,i])
@@ -502,7 +504,10 @@ class Model_SDP_NLRE_with_Conv(nn.Module):
         self.SDPPhi2   = nn.Linear(N_dense_nodes,N_dense_nodes//2)  
         self.SDPPhi3   = nn.Linear(N_dense_nodes//2,1)
 
+        self.InWeights  = torch.tensor([1,1])
         self.OutWeights = torch.tensor([1,1])
+
+        self.GaussianScale = kwargs['GaussianScale'] if 'GaussianScale' in kwargs else 10.0 # degrees
 
     def forward(self,Main,Aux,Augmentation_Scale = None, Augmentation_Function = 'BatchShuffle'):
         device = self.Dense1.weight.device
@@ -554,7 +559,7 @@ class Model_SDP_NLRE_with_Conv(nn.Module):
                 Augmentation_Scale = 4
             else:
                 Augmentation_Scale = 2
-        if Augmentation_Function == 'GaussianShift_Separated':
+        if (Augmentation_Scale != 1 ) & (Augmentation_Function == 'GaussianShift_Separated'):
             Augmentation_Scale = max(Augmentation_Scale,4)
 
         Preds_list             = []
@@ -565,29 +570,71 @@ class Model_SDP_NLRE_with_Conv(nn.Module):
             if aug_step ==0: # First one is the original
                 Aug_RecVals = RecVals
             else:
+
                 if Augmentation_Function == 'BatchShuffle':
                     Aug_RecVals = RecVals[torch.randperm(RecVals.shape[0])]
                 
+
                 elif Augmentation_Function == 'GaussianShift':
                     gaussian_shift = torch.randn(RecVals.shape[0],RecVals.shape[1]).to(RecVals.device)
-                    Aug_RecVals = RecVals + gaussian_shift * 5* torch.pi/180.0
+                    Aug_RecVals = RecVals + gaussian_shift * self.GaussianScale* torch.pi/180.0
                 
+
                 elif Augmentation_Function == 'GaussianShift_Separated':
                     assert Augmentation_Scale > 3, 'GaussianShift_Separated requires Augmentation Scale > 3'
                     if aug_step == 1: # Only augment Theta
                         gaussian_shift = torch.randn(RecVals.shape[0],1).to(RecVals.device)
                         Aug_RecVals = RecVals.clone()
-                        Aug_RecVals[:,0:1] = RecVals[:,0:1] + gaussian_shift * 5* torch.pi/180.0
+                        Aug_RecVals[:,0:1] = RecVals[:,0:1] + gaussian_shift * self.GaussianScale* torch.pi/180.0
                     elif aug_step == 2: # Only augment Phi
                         gaussian_shift = torch.randn(RecVals.shape[0],1).to(RecVals.device)
                         Aug_RecVals = RecVals.clone()
-                        Aug_RecVals[:,1:2] = RecVals[:,1:2] + gaussian_shift * 5* torch.pi/180.0
+                        Aug_RecVals[:,1:2] = RecVals[:,1:2] + gaussian_shift * self.GaussianScale* torch.pi/180.0
                     elif aug_step > 2: # Augment Both
                         gaussian_shift = torch.randn(RecVals.shape[0],2).to(RecVals.device)
-                        Aug_RecVals = RecVals + gaussian_shift * 5* torch.pi/180.0
+                        Aug_RecVals = RecVals + gaussian_shift * self.GaussianScale* torch.pi/180.0
+
+
+                elif Augmentation_Function == 'UniformSample':
+                    Theta_min =  0.0
+                    Theta_range = torch.pi
+                    Phi_min   = -torch.pi
+                    Phi_range  = 2*torch.pi
+                    
+                    Aug_RecVals = torch.zeros_like(RecVals).to(RecVals.device)
+                    Aug_RecVals[:,0] = Theta_min + torch.rand(RecVals.shape[0]).to(RecVals.device) * Theta_range
+                    Aug_RecVals[:,1] = Phi_min   + torch.rand(RecVals.shape[0]).to(RecVals.device) * Phi_range
+
+                
+                elif Augmentation_Function == 'GaussianShift_Smart':
+
+                    # Theta can be refleted around 90 degrees
+                    # Phi can be reflected around 0 and 90 degrees
+                    
+                    Aug_RecVals = torch.zeros_like(RecVals).to(RecVals.device)
+                    
+                    # Do Theta first
+                    Reflect_Theta    = (torch.rand(RecVals.shape[0]) < 0.5).to(RecVals.device)
+                    Aug_RecVals[:,0] = torch.where(Reflect_Theta, torch.pi - RecVals[:,0], RecVals[:,0])
+
+                    # Do Phi next
+                    Reflect_Phi_0  = (torch.rand(RecVals.shape[0]) < 0.5).to(RecVals.device)
+                    Reflect_Phi_90 = (torch.rand(RecVals.shape[0]) < 0.5).to(RecVals.device)
+
+                    Aug_RecVals[:,1] = torch.where(Reflect_Phi_0, -RecVals[:,1], RecVals[:,1])
+                    Aug_RecVals[:,1] = torch.where(Reflect_Phi_90, torch.pi/2 - Aug_RecVals[:,1], Aug_RecVals[:,1])
+                    
+                    
+                    # Finally add Gaussian Shift
+                    gaussian_shift = torch.randn(RecVals.shape[0],RecVals.shape[1]).to(RecVals.device)
+                    Aug_RecVals = Aug_RecVals + gaussian_shift * self.GaussianScale* torch.pi/180.0
+
+
 
                 else:
                     raise NotImplementedError(f'Augmentation Function {Augmentation_Function} not implemented')
+
+            Aug_RecVals = Aug_RecVals* self.InWeights.to(RecVals.device)
 
             Trig_Aug_RecVals = torch.cat([torch.sin(Aug_RecVals),torch.cos(Aug_RecVals)],dim=1).to(Main.device)
             Aug_Main = torch.cat([Main,Trig_Aug_RecVals],dim=1)
@@ -600,7 +647,7 @@ class Model_SDP_NLRE_with_Conv(nn.Module):
             Phi   = self.Dense_Activation(self.SDPPhi2(Phi))
             Phi   = self.Binary_Activation(self.SDPPhi3(Phi))
 
-            These_Preds = torch.cat([Theta,Phi],dim=1) * self.OutWeights.to(device)
+            These_Preds = torch.cat([Theta,Phi],dim=1) * self.OutWeights.to(device) + (1-self.OutWeights.to(device))*0.5
             Preds_list.append(These_Preds)
             Augmented_RecVals_list.append(Aug_RecVals)
 
@@ -652,3 +699,783 @@ class Model_SDP_NLRE_with_Conv_GaussianShiftSeparated(Model_SDP_NLRE_with_Conv):
     def forward(self,Main,Aux,Augmentation_Scale = None, Augmentation_Function = 'GaussianShift_Separated'):
         return super().forward(Main,Aux,Augmentation_Scale,Augmentation_Function)
         
+
+class Model_SDP_NLRE_with_Conv_GaussianShift_SDPThetaOnly(Model_SDP_NLRE_with_Conv):
+    Name = 'Model_SDP_NLRE_with_Conv_GaussianShift_SDPThetaOnly'
+    Description = '''
+    Convolutional Neural Network for SDP Reconstruction
+    Uses standard Conv2d Layers in blocks with residual connections
+    Reconstruction is done for triple telescopes
+    First split, and run the input conv on 3 telescopes individually
+    Then concatenate the results and run  main conv layers
+    This model does not do max pooling
+    Uses Gaussian Shift augmentation
+    Only SDPTheta is tested
+    '''
+
+    def __init__(self,**kwargs):
+        super(Model_SDP_NLRE_with_Conv_GaussianShift_SDPThetaOnly, self).__init__(**kwargs)
+
+        self.InWeights  = torch.tensor([1,0])
+        self.OutWeights = torch.tensor([1,0])
+
+    def forward(self,Main,Aux,Augmentation_Scale = None, Augmentation_Function = 'GaussianShift'):
+        return super().forward(Main,Aux,Augmentation_Scale,Augmentation_Function)
+    
+class Model_SDP_NLRE_with_Conv_GaussianShift_SDPPhiOnly(Model_SDP_NLRE_with_Conv):
+    Name = 'Model_SDP_NLRE_with_Conv_GaussianShift_SDPPhiOnly'
+    Description = '''
+    Convolutional Neural Network for SDP Reconstruction
+    Uses standard Conv2d Layers in blocks with residual connections
+    Reconstruction is done for triple telescopes
+    First split, and run the input conv on 3 telescopes individually
+    Then concatenate the results and run  main conv layers
+    This model does not do max pooling
+    Uses Gaussian Shift augmentation
+    Only SDPPhi is tested
+    '''
+
+    def __init__(self,**kwargs):
+        super(Model_SDP_NLRE_with_Conv_GaussianShift_SDPPhiOnly, self).__init__(**kwargs)
+
+        self.InWeights  = torch.tensor([0,1])
+        self.OutWeights = torch.tensor([0,1])
+
+    def forward(self,Main,Aux,Augmentation_Scale = None, Augmentation_Function = 'GaussianShift'):
+        return super().forward(Main,Aux,Augmentation_Scale,Augmentation_Function)
+    
+
+
+class Model_SDP_NLRE_with_Conv_GaussianShift_Smart_SDPThetaOnly(Model_SDP_NLRE_with_Conv):
+    Name = 'Model_SDP_NLRE_with_Conv_GaussianShift_Smart_SDPThetaOnly'
+    Description = '''
+    Convolutional Neural Network for SDP Reconstruction
+    Uses standard Conv2d Layers in blocks with residual connections
+    Reconstruction is done for triple telescopes
+    First split, and run the input conv on 3 telescopes individually
+    Then concatenate the results and run  main conv layers
+    This model does not do max pooling
+    Uses Gaussian Shift augmentation with smart reflections
+    Only SDPTheta is tested
+    '''
+
+    def __init__(self,**kwargs):
+        super(Model_SDP_NLRE_with_Conv_GaussianShift_Smart_SDPThetaOnly, self).__init__(**kwargs)
+
+        self.InWeights  = torch.tensor([1,0])
+        self.OutWeights = torch.tensor([1,0])
+
+        self.GaussianScale = 5.0 # degrees
+
+    def forward(self,Main,Aux,Augmentation_Scale = None, Augmentation_Function = 'GaussianShift_Smart'):
+        return super().forward(Main,Aux,Augmentation_Scale,Augmentation_Function)
+    
+class Model_SDP_NLRE_with_Conv_GaussianShift_Smart_SDPPhiOnly(Model_SDP_NLRE_with_Conv):
+    Name = 'Model_SDP_NLRE_with_Conv_GaussianShift_Smart_SDPPhiOnly'
+    Description = '''
+    Convolutional Neural Network for SDP Reconstruction
+    Uses standard Conv2d Layers in blocks with residual connections
+    Reconstruction is done for triple telescopes
+    First split, and run the input conv on 3 telescopes individually
+    Then concatenate the results and run  main conv layers
+    This model does not do max pooling
+    Uses Gaussian Shift augmentation with smart reflections
+    Only SDPPhi is tested
+    '''
+
+    def __init__(self,**kwargs):
+        super(Model_SDP_NLRE_with_Conv_GaussianShift_Smart_SDPPhiOnly, self).__init__(**kwargs)
+
+        self.InWeights  = torch.tensor([0,1])
+        self.OutWeights = torch.tensor([0,1])
+
+        self.GaussianScale = 5.0 # degrees
+
+    def forward(self,Main,Aux,Augmentation_Scale = None, Augmentation_Function = 'GaussianShift_Smart'):
+        return super().forward(Main,Aux,Augmentation_Scale,Augmentation_Function)
+    
+
+class Model_SDP_NLRE_with_Conv_UniformSample_SDPThetaOnly(Model_SDP_NLRE_with_Conv):
+    Name = 'Model_SDP_NLRE_with_Conv_UniformSample_SDPThetaOnly'
+    Description = '''
+    Convolutional Neural Network for SDP Reconstruction
+    Uses standard Conv2d Layers in blocks with residual connections
+    Reconstruction is done for triple telescopes
+    First split, and run the input conv on 3 telescopes individually
+    Then concatenate the results and run  main conv layers
+    This model does not do max pooling
+    Uses Uniform Sampling augmentation
+    Only SDPTheta is tested
+    '''
+
+    def __init__(self,**kwargs):
+        super(Model_SDP_NLRE_with_Conv_UniformSample_SDPThetaOnly, self).__init__(**kwargs)
+
+        self.InWeights  = torch.tensor([1,0])
+        self.OutWeights = torch.tensor([1,0])
+
+    def forward(self,Main,Aux,Augmentation_Scale = None, Augmentation_Function = 'UniformSample'):
+        return super().forward(Main,Aux,Augmentation_Scale,Augmentation_Function)
+    
+class Model_SDP_NLRE_with_Conv_UniformSample_SDPPhiOnly(Model_SDP_NLRE_with_Conv):
+    Name = 'Model_SDP_NLRE_with_Conv_UniformSample_SDPPhiOnly'
+    Description = '''
+    Convolutional Neural Network for SDP Reconstruction
+    Uses standard Conv2d Layers in blocks with residual connections
+    Reconstruction is done for triple telescopes
+    First split, and run the input conv on 3 telescopes individually
+    Then concatenate the results and run  main conv layers
+    This model does not do max pooling
+    Uses Uniform Sampling augmentation
+    Only SDPPhi is tested
+    '''
+
+    def __init__(self,**kwargs):
+        super(Model_SDP_NLRE_with_Conv_UniformSample_SDPPhiOnly, self).__init__(**kwargs)
+
+        self.InWeights  = torch.tensor([0,1])
+        self.OutWeights = torch.tensor([0,1])
+
+    def forward(self,Main,Aux,Augmentation_Scale = None, Augmentation_Function = 'UniformSample'):
+        return super().forward(Main,Aux,Augmentation_Scale,Augmentation_Function)
+
+
+
+class Model_SDP_NLRE_with_Conv_UniformSample_SDPThetaOnly_ZeroedSin(Model_SDP_NLRE_with_Conv):
+    Name = 'Model_SDP_NLRE_with_Conv_UniformSample_SDPThetaOnly_ZeroedSin'
+    Description = '''
+    Convolutional Neural Network for SDP Reconstruction
+    Uses standard Conv2d Layers in blocks with residual connections
+    Reconstruction is done for triple telescopes
+    First split, and run the input conv on 3 telescopes individually
+    Then concatenate the results and run  main conv layers
+    This model does not do max pooling
+    Uses Uniform Sampling augmentation
+    Only SDPTheta is tested
+    Sin component of SDPTheta is zeroed out
+    '''
+
+    def __init__(self,**kwargs):
+        super(Model_SDP_NLRE_with_Conv_UniformSample_SDPThetaOnly_ZeroedSin, self).__init__(**kwargs)
+
+        self.InWeights  = torch.tensor([1,0])
+        self.OutWeights = torch.tensor([1,0])
+
+    def forward(self,Main,Aux,Augmentation_Scale = None, Augmentation_Function = 'UniformSample'):
+        device = self.Dense1.weight.device
+        # Only 1 main is expected
+        assert len(Main) == 2, 'Two Mains are expected'
+
+        
+        if Main[0].ndim == 4: # Main should have 3 dims, RecVals 2 dims , forwards order
+            RecVals = Main[1].to(device)
+            Main    = Main[0].to(device)
+        elif Main[1].ndim == 4: # Backwards order
+            RecVals = Main[0].to(device)
+            Main    = Main[1].to(device)
+        else:
+            raise ValueError('Cannot determine Main and RecVals')
+
+        Main_L = self.Conv_Activation(self.conv_0_large(Main))
+        Main_S = self.Conv_Activation(self.conv_0_small(Main))
+        
+        Main = torch.cat([Main_L,Main_S],dim=1)
+        Main = self.Conv_Dropout(self.Conv_Activation(self.conv_0(Main)))
+        Main = self.BN_0(Main)
+    
+        Main = self.Conv_Dropout(self.conv_1(Main))
+        Main = self.BN_1(Main)
+    
+        Main = self.Conv_Dropout(self.conv_2(Main))
+        Main = self.BN_2(Main)
+
+        Main = self.Conv_Dropout(self.conv_3(Main))
+        Main = self.BN_3(Main)
+
+        Main = self.Conv_Dropout(self.conv_4(Main))
+        Main = self.BN_4(Main)
+
+        Main = self.Conv_Dropout(self.conv_5(Main))
+        Main = self.BN_5(Main)
+
+        # Flatten the output
+        Main = Main.view(Main.shape[0],-1)
+        # Dense and Output Layers
+        Main = self.Dense_Activation(self.Dense1(Main))
+        Main = self.Dense_Activation(self.Dense2(Main))
+        Main = self.Dense_Activation(self.Dense3(Main))
+
+        # Here Be Augmentation
+        if Augmentation_Scale is None:
+            if self.training:
+                Augmentation_Scale = 4
+            else:
+                Augmentation_Scale = 2
+        if (Augmentation_Scale != 1 ) & (Augmentation_Function == 'GaussianShift_Separated'):
+            Augmentation_Scale = max(Augmentation_Scale,4)
+
+        Preds_list             = []
+        Augmented_RecVals_list = []
+
+        for aug_step in range(Augmentation_Scale):
+            
+            if aug_step ==0: # First one is the original
+                Aug_RecVals = RecVals
+            else:
+
+                if Augmentation_Function == 'BatchShuffle':
+                    Aug_RecVals = RecVals[torch.randperm(RecVals.shape[0])]
+                
+
+                elif Augmentation_Function == 'GaussianShift':
+                    gaussian_shift = torch.randn(RecVals.shape[0],RecVals.shape[1]).to(RecVals.device)
+                    Aug_RecVals = RecVals + gaussian_shift * self.GaussianScale* torch.pi/180.0
+                
+
+                elif Augmentation_Function == 'GaussianShift_Separated':
+                    assert Augmentation_Scale > 3, 'GaussianShift_Separated requires Augmentation Scale > 3'
+                    if aug_step == 1: # Only augment Theta
+                        gaussian_shift = torch.randn(RecVals.shape[0],1).to(RecVals.device)
+                        Aug_RecVals = RecVals.clone()
+                        Aug_RecVals[:,0:1] = RecVals[:,0:1] + gaussian_shift * self.GaussianScale* torch.pi/180.0
+                    elif aug_step == 2: # Only augment Phi
+                        gaussian_shift = torch.randn(RecVals.shape[0],1).to(RecVals.device)
+                        Aug_RecVals = RecVals.clone()
+                        Aug_RecVals[:,1:2] = RecVals[:,1:2] + gaussian_shift * self.GaussianScale* torch.pi/180.0
+                    elif aug_step > 2: # Augment Both
+                        gaussian_shift = torch.randn(RecVals.shape[0],2).to(RecVals.device)
+                        Aug_RecVals = RecVals + gaussian_shift * self.GaussianScale* torch.pi/180.0
+
+
+                elif Augmentation_Function == 'UniformSample':
+                    Theta_min =  0.0
+                    Theta_range = torch.pi
+                    Phi_min   = -torch.pi
+                    Phi_range  = 2*torch.pi
+                    
+                    Aug_RecVals = torch.zeros_like(RecVals).to(RecVals.device)
+                    Aug_RecVals[:,0] = Theta_min + torch.rand(RecVals.shape[0]).to(RecVals.device) * Theta_range
+                    Aug_RecVals[:,1] = Phi_min   + torch.rand(RecVals.shape[0]).to(RecVals.device) * Phi_range
+
+                
+                elif Augmentation_Function == 'GaussianShift_Smart':
+
+                    # Theta can be refleted around 90 degrees
+                    # Phi can be reflected around 0 and 90 degrees
+                    
+                    Aug_RecVals = torch.zeros_like(RecVals).to(RecVals.device)
+                    
+                    # Do Theta first
+                    Reflect_Theta    = (torch.rand(RecVals.shape[0]) < 0.5).to(RecVals.device)
+                    Aug_RecVals[:,0] = torch.where(Reflect_Theta, torch.pi - RecVals[:,0], RecVals[:,0])
+
+                    # Do Phi next
+                    Reflect_Phi_0  = (torch.rand(RecVals.shape[0]) < 0.5).to(RecVals.device)
+                    Reflect_Phi_90 = (torch.rand(RecVals.shape[0]) < 0.5).to(RecVals.device)
+
+                    Aug_RecVals[:,1] = torch.where(Reflect_Phi_0, -RecVals[:,1], RecVals[:,1])
+                    Aug_RecVals[:,1] = torch.where(Reflect_Phi_90, torch.pi/2 - Aug_RecVals[:,1], Aug_RecVals[:,1])
+                    
+                    
+                    # Finally add Gaussian Shift
+                    gaussian_shift = torch.randn(RecVals.shape[0],RecVals.shape[1]).to(RecVals.device)
+                    Aug_RecVals = Aug_RecVals + gaussian_shift * self.GaussianScale* torch.pi/180.0
+
+
+
+                else:
+                    raise NotImplementedError(f'Augmentation Function {Augmentation_Function} not implemented')
+
+            Aug_RecVals = Aug_RecVals* self.InWeights.to(RecVals.device)
+
+            Trig_Aug_RecVals = torch.cat([torch.sin(Aug_RecVals)*0,torch.cos(Aug_RecVals)],dim=1).to(Main.device)
+            Aug_Main = torch.cat([Main,Trig_Aug_RecVals],dim=1)
+
+            Theta = self.Dense_Activation(self.SDPTheta1(Aug_Main))
+            Theta = self.Dense_Activation(self.SDPTheta2(Theta))
+            Theta = self.Binary_Activation(self.SDPTheta3(Theta))
+
+            Phi   = self.Dense_Activation(self.SDPPhi1(Aug_Main))
+            Phi   = self.Dense_Activation(self.SDPPhi2(Phi))
+            Phi   = self.Binary_Activation(self.SDPPhi3(Phi))
+
+            These_Preds = torch.cat([Theta,Phi],dim=1) * self.OutWeights.to(device) + (1-self.OutWeights.to(device))*0.5
+            Preds_list.append(These_Preds)
+            Augmented_RecVals_list.append(Aug_RecVals)
+
+        Preds             = torch.stack(Preds_list            ,dim=0)
+        Augmented_RecVals = torch.stack(Augmented_RecVals_list,dim=0)
+        
+        Preds             = Preds            .permute(1,0,2).reshape(-1,self.in_RecValues_channels)
+        Augmented_RecVals = Augmented_RecVals.permute(1,0,2).reshape(-1,self.in_RecValues_channels)
+        
+        return [Preds,Augmented_RecVals]
+    
+class Model_SDP_NLRE_with_Conv_UniformSample_SDPThetaOnly_NoTrig(Model_SDP_NLRE_with_Conv):
+    Name = 'Model_SDP_NLRE_with_Conv_UniformSample_SDPThetaOnly_NoTrig'
+    Description = '''
+    Convolutional Neural Network for SDP Reconstruction
+    Uses standard Conv2d Layers in blocks with residual connections
+    Reconstruction is done for triple telescopes
+    First split, and run the input conv on 3 telescopes individually
+    Then concatenate the results and run  main conv layers
+    This model does not do max pooling
+    Uses Uniform Sampling augmentation
+    Only SDPTheta is tested
+    Sin component of SDPTheta is zeroed out
+    '''
+
+    def __init__(self,**kwargs):
+        super(Model_SDP_NLRE_with_Conv_UniformSample_SDPThetaOnly_NoTrig, self).__init__(**kwargs)
+
+        self.InWeights  = torch.tensor([1,0])
+        self.OutWeights = torch.tensor([1,0])
+
+    def forward(self,Main,Aux,Augmentation_Scale = None, Augmentation_Function = 'UniformSample'):
+        device = self.Dense1.weight.device
+        # Only 1 main is expected
+        assert len(Main) == 2, 'Two Mains are expected'
+
+        
+        if Main[0].ndim == 4: # Main should have 3 dims, RecVals 2 dims , forwards order
+            RecVals = Main[1].to(device)
+            Main    = Main[0].to(device)
+        elif Main[1].ndim == 4: # Backwards order
+            RecVals = Main[0].to(device)
+            Main    = Main[1].to(device)
+        else:
+            raise ValueError('Cannot determine Main and RecVals')
+
+        Main_L = self.Conv_Activation(self.conv_0_large(Main))
+        Main_S = self.Conv_Activation(self.conv_0_small(Main))
+        
+        Main = torch.cat([Main_L,Main_S],dim=1)
+        Main = self.Conv_Dropout(self.Conv_Activation(self.conv_0(Main)))
+        Main = self.BN_0(Main)
+    
+        Main = self.Conv_Dropout(self.conv_1(Main))
+        Main = self.BN_1(Main)
+    
+        Main = self.Conv_Dropout(self.conv_2(Main))
+        Main = self.BN_2(Main)
+
+        Main = self.Conv_Dropout(self.conv_3(Main))
+        Main = self.BN_3(Main)
+
+        Main = self.Conv_Dropout(self.conv_4(Main))
+        Main = self.BN_4(Main)
+
+        Main = self.Conv_Dropout(self.conv_5(Main))
+        Main = self.BN_5(Main)
+
+        # Flatten the output
+        Main = Main.view(Main.shape[0],-1)
+        # Dense and Output Layers
+        Main = self.Dense_Activation(self.Dense1(Main))
+        Main = self.Dense_Activation(self.Dense2(Main))
+        Main = self.Dense_Activation(self.Dense3(Main))
+
+        # Here Be Augmentation
+        if Augmentation_Scale is None:
+            if self.training:
+                Augmentation_Scale = 4
+            else:
+                Augmentation_Scale = 2
+        if (Augmentation_Scale != 1 ) & (Augmentation_Function == 'GaussianShift_Separated'):
+            Augmentation_Scale = max(Augmentation_Scale,4)
+
+        Preds_list             = []
+        Augmented_RecVals_list = []
+
+        for aug_step in range(Augmentation_Scale):
+            
+            if aug_step ==0: # First one is the original
+                Aug_RecVals = RecVals
+            else:
+
+                if Augmentation_Function == 'BatchShuffle':
+                    Aug_RecVals = RecVals[torch.randperm(RecVals.shape[0])]
+                
+
+                elif Augmentation_Function == 'GaussianShift':
+                    gaussian_shift = torch.randn(RecVals.shape[0],RecVals.shape[1]).to(RecVals.device)
+                    Aug_RecVals = RecVals + gaussian_shift * self.GaussianScale* torch.pi/180.0
+                
+
+                elif Augmentation_Function == 'GaussianShift_Separated':
+                    assert Augmentation_Scale > 3, 'GaussianShift_Separated requires Augmentation Scale > 3'
+                    if aug_step == 1: # Only augment Theta
+                        gaussian_shift = torch.randn(RecVals.shape[0],1).to(RecVals.device)
+                        Aug_RecVals = RecVals.clone()
+                        Aug_RecVals[:,0:1] = RecVals[:,0:1] + gaussian_shift * self.GaussianScale* torch.pi/180.0
+                    elif aug_step == 2: # Only augment Phi
+                        gaussian_shift = torch.randn(RecVals.shape[0],1).to(RecVals.device)
+                        Aug_RecVals = RecVals.clone()
+                        Aug_RecVals[:,1:2] = RecVals[:,1:2] + gaussian_shift * self.GaussianScale* torch.pi/180.0
+                    elif aug_step > 2: # Augment Both
+                        gaussian_shift = torch.randn(RecVals.shape[0],2).to(RecVals.device)
+                        Aug_RecVals = RecVals + gaussian_shift * self.GaussianScale* torch.pi/180.0
+
+
+                elif Augmentation_Function == 'UniformSample':
+                    Theta_min =  0.0
+                    Theta_range = torch.pi
+                    Phi_min   = -torch.pi
+                    Phi_range  = 2*torch.pi
+                    
+                    Aug_RecVals = torch.zeros_like(RecVals).to(RecVals.device)
+                    Aug_RecVals[:,0] = Theta_min + torch.rand(RecVals.shape[0]).to(RecVals.device) * Theta_range
+                    Aug_RecVals[:,1] = Phi_min   + torch.rand(RecVals.shape[0]).to(RecVals.device) * Phi_range
+
+                
+                elif Augmentation_Function == 'GaussianShift_Smart':
+
+                    # Theta can be refleted around 90 degrees
+                    # Phi can be reflected around 0 and 90 degrees
+                    
+                    Aug_RecVals = torch.zeros_like(RecVals).to(RecVals.device)
+                    
+                    # Do Theta first
+                    Reflect_Theta    = (torch.rand(RecVals.shape[0]) < 0.5).to(RecVals.device)
+                    Aug_RecVals[:,0] = torch.where(Reflect_Theta, torch.pi - RecVals[:,0], RecVals[:,0])
+
+                    # Do Phi next
+                    Reflect_Phi_0  = (torch.rand(RecVals.shape[0]) < 0.5).to(RecVals.device)
+                    Reflect_Phi_90 = (torch.rand(RecVals.shape[0]) < 0.5).to(RecVals.device)
+
+                    Aug_RecVals[:,1] = torch.where(Reflect_Phi_0, -RecVals[:,1], RecVals[:,1])
+                    Aug_RecVals[:,1] = torch.where(Reflect_Phi_90, torch.pi/2 - Aug_RecVals[:,1], Aug_RecVals[:,1])
+                    
+                    
+                    # Finally add Gaussian Shift
+                    gaussian_shift = torch.randn(RecVals.shape[0],RecVals.shape[1]).to(RecVals.device)
+                    Aug_RecVals = Aug_RecVals + gaussian_shift * self.GaussianScale* torch.pi/180.0
+
+
+
+                else:
+                    raise NotImplementedError(f'Augmentation Function {Augmentation_Function} not implemented')
+
+            Aug_RecVals = Aug_RecVals* self.InWeights.to(RecVals.device)
+
+            Trig_Aug_RecVals = torch.cat([Aug_RecVals,Aug_RecVals],dim=1).to(Main.device)
+            Aug_Main = torch.cat([Main,Trig_Aug_RecVals],dim=1)
+
+            Theta = self.Dense_Activation(self.SDPTheta1(Aug_Main))
+            Theta = self.Dense_Activation(self.SDPTheta2(Theta))
+            Theta = self.Binary_Activation(self.SDPTheta3(Theta))
+
+            Phi   = self.Dense_Activation(self.SDPPhi1(Aug_Main))
+            Phi   = self.Dense_Activation(self.SDPPhi2(Phi))
+            Phi   = self.Binary_Activation(self.SDPPhi3(Phi))
+
+            These_Preds = torch.cat([Theta,Phi],dim=1) * self.OutWeights.to(device) + (1-self.OutWeights.to(device))*0.5
+            Preds_list.append(These_Preds)
+            Augmented_RecVals_list.append(Aug_RecVals)
+
+        Preds             = torch.stack(Preds_list            ,dim=0)
+        Augmented_RecVals = torch.stack(Augmented_RecVals_list,dim=0)
+        
+        Preds             = Preds            .permute(1,0,2).reshape(-1,self.in_RecValues_channels)
+        Augmented_RecVals = Augmented_RecVals.permute(1,0,2).reshape(-1,self.in_RecValues_channels)
+        
+        return [Preds,Augmented_RecVals]
+
+class Model_SDP_NLRE_with_Conv_UniformSample_SDPThetaOnly_KnownPhi(Model_SDP_NLRE_with_Conv):
+    Name = 'Model_SDP_NLRE_with_Conv_UniformSample_SDPThetaOnly_KnownPhi'
+    Description = '''
+    Convolutional Neural Network for SDP Reconstruction
+    Uses standard Conv2d Layers in blocks with residual connections
+    Reconstruction is done for triple telescopes
+    First split, and run the input conv on 3 telescopes individually
+    Then concatenate the results and run  main conv layers
+    This model does not do max pooling
+    Uses Uniform Sampling augmentation
+    Only SDPTheta is tested
+    Phi is Passed in unaugmented
+    '''
+
+    def __init__(self,**kwargs):
+        super(Model_SDP_NLRE_with_Conv_UniformSample_SDPThetaOnly_KnownPhi, self).__init__(**kwargs)
+
+        self.InWeights  = torch.tensor([1,1])
+        self.OutWeights = torch.tensor([1,0])
+
+    def forward(self,Main,Aux,Augmentation_Scale = None, Augmentation_Function = 'UniformSample'):
+        device = self.Dense1.weight.device
+        # Only 1 main is expected
+        assert len(Main) == 2, 'Two Mains are expected'
+
+        
+        if Main[0].ndim == 4: # Main should have 3 dims, RecVals 2 dims , forwards order
+            RecVals = Main[1].to(device)
+            Main    = Main[0].to(device)
+        elif Main[1].ndim == 4: # Backwards order
+            RecVals = Main[0].to(device)
+            Main    = Main[1].to(device)
+        else:
+            raise ValueError('Cannot determine Main and RecVals')
+
+        Main_L = self.Conv_Activation(self.conv_0_large(Main))
+        Main_S = self.Conv_Activation(self.conv_0_small(Main))
+        
+        Main = torch.cat([Main_L,Main_S],dim=1)
+        Main = self.Conv_Dropout(self.Conv_Activation(self.conv_0(Main)))
+        Main = self.BN_0(Main)
+    
+        Main = self.Conv_Dropout(self.conv_1(Main))
+        Main = self.BN_1(Main)
+    
+        Main = self.Conv_Dropout(self.conv_2(Main))
+        Main = self.BN_2(Main)
+
+        Main = self.Conv_Dropout(self.conv_3(Main))
+        Main = self.BN_3(Main)
+
+        Main = self.Conv_Dropout(self.conv_4(Main))
+        Main = self.BN_4(Main)
+
+        Main = self.Conv_Dropout(self.conv_5(Main))
+        Main = self.BN_5(Main)
+
+        # Flatten the output
+        Main = Main.view(Main.shape[0],-1)
+        # Dense and Output Layers
+        Main = self.Dense_Activation(self.Dense1(Main))
+        Main = self.Dense_Activation(self.Dense2(Main))
+        Main = self.Dense_Activation(self.Dense3(Main))
+
+        # Here Be Augmentation
+        if Augmentation_Scale is None:
+            if self.training:
+                Augmentation_Scale = 4
+            else:
+                Augmentation_Scale = 2
+        
+        Preds_list             = []
+        Augmented_RecVals_list = []
+
+        for aug_step in range(Augmentation_Scale):
+            
+            if aug_step ==0: # First one is the original
+                Aug_RecVals = RecVals
+            else:
+
+                if Augmentation_Function == 'UniformSample':
+                    Theta_min =  0.0
+                    Theta_range = torch.pi
+                    
+                    Aug_RecVals = torch.zeros_like(RecVals).to(RecVals.device)
+                    Aug_RecVals[:,0] = Theta_min + torch.rand(RecVals.shape[0]).to(RecVals.device) * Theta_range
+                    Aug_RecVals[:,1] = RecVals[:,1]  # Keep Phi the same
+
+                
+
+                else:
+                    raise NotImplementedError(f'Augmentation Function {Augmentation_Function} not implemented')
+
+            Aug_RecVals = Aug_RecVals* self.InWeights.to(RecVals.device)
+
+            Trig_Aug_RecVals = torch.cat([torch.sin(Aug_RecVals),torch.cos(Aug_RecVals)],dim=1).to(Main.device)
+            Aug_Main = torch.cat([Main,Trig_Aug_RecVals],dim=1)
+
+            Theta = self.Dense_Activation(self.SDPTheta1(Aug_Main))
+            Theta = self.Dense_Activation(self.SDPTheta2(Theta))
+            Theta = self.Binary_Activation(self.SDPTheta3(Theta))
+
+            Phi   = self.Dense_Activation(self.SDPPhi1(Aug_Main))
+            Phi   = self.Dense_Activation(self.SDPPhi2(Phi))
+            Phi   = self.Binary_Activation(self.SDPPhi3(Phi))
+
+            These_Preds = torch.cat([Theta,Phi],dim=1) * self.OutWeights.to(device) + (1-self.OutWeights.to(device))*0.5
+            Preds_list.append(These_Preds)
+            Augmented_RecVals_list.append(Aug_RecVals)
+
+        Preds             = torch.stack(Preds_list            ,dim=0)
+        Augmented_RecVals = torch.stack(Augmented_RecVals_list,dim=0)
+        
+        Preds             = Preds            .permute(1,0,2).reshape(-1,self.in_RecValues_channels)
+        Augmented_RecVals = Augmented_RecVals.permute(1,0,2).reshape(-1,self.in_RecValues_channels)
+        
+        return [Preds,Augmented_RecVals]        
+    
+
+class Model_SDP_NLRE_with_Conv_EveryAngle_SDPThetaOnly(Model_SDP_NLRE_with_Conv):
+    
+    Name = 'Model_SDP_NLRE_with_Conv_EveryAngle_SDPThetaOnly'
+    Description = '''
+    Convolutional Neural Network for SDP Reconstruction
+    Uses standard Conv2d Layers in blocks with residual connections
+    Reconstruction is done for triple telescopes
+    First split, and run the input conv on 3 telescopes individually
+    Then concatenate the results and run  main conv layers
+    This model does not do max pooling
+
+    Augmentation Puts in Every Angle
+    '''
+
+    def __init__(self,**kwargs):
+        super(Model_SDP_NLRE_with_Conv_EveryAngle_SDPThetaOnly, self).__init__(**kwargs)
+
+        self.InWeights  = torch.tensor([1,0])
+        self.OutWeights = torch.tensor([1,0])
+
+    def forward(self,Main,Aux,Augmentation_Scale = None, Augmentation_Function = 'EveryAngle'):
+        device = self.Dense1.weight.device
+        # Only 1 main is expected
+        assert len(Main) == 2, 'Two Mains are expected'
+
+        
+        if Main[0].ndim == 4: # Main should have 3 dims, RecVals 2 dims , forwards order
+            RecVals = Main[1].to(device)
+            Main    = Main[0].to(device)
+        elif Main[1].ndim == 4: # Backwards order
+            RecVals = Main[0].to(device)
+            Main    = Main[1].to(device)
+        else:
+            raise ValueError('Cannot determine Main and RecVals')
+
+        Main_L = self.Conv_Activation(self.conv_0_large(Main))
+        Main_S = self.Conv_Activation(self.conv_0_small(Main))
+        
+        Main = torch.cat([Main_L,Main_S],dim=1)
+        Main = self.Conv_Dropout(self.Conv_Activation(self.conv_0(Main)))
+        Main = self.BN_0(Main)
+    
+        Main = self.Conv_Dropout(self.conv_1(Main))
+        Main = self.BN_1(Main)
+    
+        Main = self.Conv_Dropout(self.conv_2(Main))
+        Main = self.BN_2(Main)
+
+        Main = self.Conv_Dropout(self.conv_3(Main))
+        Main = self.BN_3(Main)
+
+        Main = self.Conv_Dropout(self.conv_4(Main))
+        Main = self.BN_4(Main)
+
+        Main = self.Conv_Dropout(self.conv_5(Main))
+        Main = self.BN_5(Main)
+
+        # Flatten the output
+        Main = Main.view(Main.shape[0],-1)
+        # Dense and Output Layers
+        Main = self.Dense_Activation(self.Dense1(Main))
+        Main = self.Dense_Activation(self.Dense2(Main))
+        Main = self.Dense_Activation(self.Dense3(Main))
+
+        # Here Be Augmentation
+        if Augmentation_Scale is None:
+            if self.training:
+                Augmentation_Scale = 4
+            else:
+                Augmentation_Scale = 2
+        if (Augmentation_Scale != 1 ) & (Augmentation_Function == 'GaussianShift_Separated'):
+            Augmentation_Scale = max(Augmentation_Scale,4)
+        if Augmentation_Function == 'EveryAngle' and Augmentation_Scale != 1:
+            Augmentation_Scale = 180
+
+        Preds_list             = []
+        Augmented_RecVals_list = []
+
+        for aug_step in range(Augmentation_Scale):
+            
+            if aug_step ==0: # First one is the original
+                Aug_RecVals = RecVals
+            else:
+
+                if Augmentation_Function == 'BatchShuffle':
+                    Aug_RecVals = RecVals[torch.randperm(RecVals.shape[0])]
+                
+
+                elif Augmentation_Function == 'GaussianShift':
+                    gaussian_shift = torch.randn(RecVals.shape[0],RecVals.shape[1]).to(RecVals.device)
+                    Aug_RecVals = RecVals + gaussian_shift * self.GaussianScale* torch.pi/180.0
+                
+
+                elif Augmentation_Function == 'GaussianShift_Separated':
+                    assert Augmentation_Scale > 3, 'GaussianShift_Separated requires Augmentation Scale > 3'
+                    if aug_step == 1: # Only augment Theta
+                        gaussian_shift = torch.randn(RecVals.shape[0],1).to(RecVals.device)
+                        Aug_RecVals = RecVals.clone()
+                        Aug_RecVals[:,0:1] = RecVals[:,0:1] + gaussian_shift * self.GaussianScale* torch.pi/180.0
+                    elif aug_step == 2: # Only augment Phi
+                        gaussian_shift = torch.randn(RecVals.shape[0],1).to(RecVals.device)
+                        Aug_RecVals = RecVals.clone()
+                        Aug_RecVals[:,1:2] = RecVals[:,1:2] + gaussian_shift * self.GaussianScale* torch.pi/180.0
+                    elif aug_step > 2: # Augment Both
+                        gaussian_shift = torch.randn(RecVals.shape[0],2).to(RecVals.device)
+                        Aug_RecVals = RecVals + gaussian_shift * self.GaussianScale* torch.pi/180.0
+
+
+                elif Augmentation_Function == 'UniformSample':
+                    Theta_min =  0.0
+                    Theta_range = torch.pi
+                    Phi_min   = -torch.pi
+                    Phi_range  = 2*torch.pi
+                    
+                    Aug_RecVals = torch.zeros_like(RecVals).to(RecVals.device)
+                    Aug_RecVals[:,0] = Theta_min + torch.rand(RecVals.shape[0]).to(RecVals.device) * Theta_range
+                    Aug_RecVals[:,1] = Phi_min   + torch.rand(RecVals.shape[0]).to(RecVals.device) * Phi_range
+
+                
+                elif Augmentation_Function == 'GaussianShift_Smart':
+
+                    # Theta can be refleted around 90 degrees
+                    # Phi can be reflected around 0 and 90 degrees
+                    
+                    Aug_RecVals = torch.zeros_like(RecVals).to(RecVals.device)
+                    
+                    # Do Theta first
+                    Reflect_Theta    = (torch.rand(RecVals.shape[0]) < 0.5).to(RecVals.device)
+                    Aug_RecVals[:,0] = torch.where(Reflect_Theta, torch.pi - RecVals[:,0], RecVals[:,0])
+
+                    # Do Phi next
+                    Reflect_Phi_0  = (torch.rand(RecVals.shape[0]) < 0.5).to(RecVals.device)
+                    Reflect_Phi_90 = (torch.rand(RecVals.shape[0]) < 0.5).to(RecVals.device)
+
+                    Aug_RecVals[:,1] = torch.where(Reflect_Phi_0, -RecVals[:,1], RecVals[:,1])
+                    Aug_RecVals[:,1] = torch.where(Reflect_Phi_90, torch.pi/2 - Aug_RecVals[:,1], Aug_RecVals[:,1])
+                    
+                    
+                    # Finally add Gaussian Shift
+                    gaussian_shift = torch.randn(RecVals.shape[0],RecVals.shape[1]).to(RecVals.device)
+                    Aug_RecVals = Aug_RecVals + gaussian_shift * self.GaussianScale* torch.pi/180.0
+
+                elif Augmentation_Function == 'EveryAngle':
+                    Theta_value = aug_step * (torch.pi / Augmentation_Scale)
+                    Aug_RecVals = RecVals.clone()
+                    Aug_RecVals[:,0] = Theta_value
+
+                else:
+                    raise NotImplementedError(f'Augmentation Function {Augmentation_Function} not implemented')
+
+            Aug_RecVals = Aug_RecVals* self.InWeights.to(RecVals.device)
+
+            Trig_Aug_RecVals = torch.cat([torch.sin(Aug_RecVals),torch.cos(Aug_RecVals)],dim=1).to(Main.device)
+            Aug_Main = torch.cat([Main,Trig_Aug_RecVals],dim=1)
+
+            Theta = self.Dense_Activation(self.SDPTheta1(Aug_Main))
+            Theta = self.Dense_Activation(self.SDPTheta2(Theta))
+            Theta = self.Binary_Activation(self.SDPTheta3(Theta))
+
+            Phi   = self.Dense_Activation(self.SDPPhi1(Aug_Main))
+            Phi   = self.Dense_Activation(self.SDPPhi2(Phi))
+            Phi   = self.Binary_Activation(self.SDPPhi3(Phi))
+
+            These_Preds = torch.cat([Theta,Phi],dim=1) * self.OutWeights.to(device) + (1-self.OutWeights.to(device))*0.5
+            Preds_list.append(These_Preds)
+            Augmented_RecVals_list.append(Aug_RecVals)
+
+        Preds             = torch.stack(Preds_list            ,dim=0)
+        Augmented_RecVals = torch.stack(Augmented_RecVals_list,dim=0)
+        
+        Preds             = Preds            .permute(1,0,2).reshape(-1,self.in_RecValues_channels)
+        Augmented_RecVals = Augmented_RecVals.permute(1,0,2).reshape(-1,self.in_RecValues_channels)
+        
+        return [Preds,Augmented_RecVals]
+
+
+
+
+

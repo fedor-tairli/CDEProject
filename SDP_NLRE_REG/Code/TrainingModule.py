@@ -91,7 +91,8 @@ class Tracker():
         for key in self.EpochLoss.keys():
             self.EpochLoss[key].append(Info['EpochLoss'][key])
             self.EpochValLoss[key].append(Info['EpochValLoss'][key])
-            if key!='Total':
+        for key in Info['EpochMetric'].keys():
+                if key not in self.EpochMetric: self.EpochMetric[key] = []
                 self.EpochMetric[key].append(Info['EpochMetric'][key])
 
         # Check if val loss is increasing
@@ -140,6 +141,10 @@ class Tracker():
                     f.write(f'        {key} : {self.EpochValLoss[key][-1]} \n')
                 f.write(f'    Final Metrics: \n')
                 for key in self.EpochMetric.keys():
+                    if key == 'Units':
+                        continue
+                    if len(self.EpochMetric[key]) == 0:
+                        continue
                     f.write(f'        {key} : {self.EpochMetric[key][-1]} \n')
                 f.write('\n')
         else:

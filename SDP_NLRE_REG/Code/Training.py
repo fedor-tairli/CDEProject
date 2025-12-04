@@ -158,46 +158,16 @@ if __name__ == '__main__' and not TestingThings:
         # import model
         from TrainingModule import Train , Tracker
 
-        # from Model_NLRE import Loss as Loss_function
-        # from Model_NLRE import validate, metric
-        # from Model_NLRE import Model_NLRE_with_Conv3d , Model_NLRE_with_Conv3d_BatchShuffle
-        # from Model_NLRE import Model_NLRE_with_Conv3d_AllIn, Model_NLRE_with_Conv3d_AllIn_BatchShuffle
-        # from Model_NLRE import Model_NLRE_with_Conv3d_AllIn_BatchShuffle_SDPOnly
         
         
-        from Model_NLRE_SDP import Loss as Loss_function
-        from Model_NLRE_SDP import validate, metric
-        # # from Model_NLRE_SDP import Model_SDP_NLRE_with_Conv , Model_SDP_NLRE_with_Conv_GaussianShift, Model_SDP_NLRE_with_Conv_GaussianShiftSeparated
-        # # from Model_NLRE_SDP import Model_SDP_NLRE_with_Conv_GaussianShift_SDPThetaOnly, Model_SDP_NLRE_with_Conv_GaussianShift_SDPPhiOnly
-        # from Model_NLRE_SDP import Model_SDP_NLRE_with_Conv_GaussianShift_Smart_SDPThetaOnly, Model_SDP_NLRE_with_Conv_GaussianShift_Smart_SDPPhiOnly
-        from Model_NLRE_SDP import Model_SDP_NLRE_with_Conv_UniformSample_SDPThetaOnly, Model_SDP_NLRE_with_Conv_UniformSample_SDPPhiOnly
-        # from Model_NLRE_SDP import Model_SDP_NLRE_with_Conv_UniformSample_SDPThetaOnly_ZeroedSin ,Model_SDP_NLRE_with_Conv_UniformSample_SDPThetaOnly_NoTrig
-        # from Model_NLRE_SDP import Model_SDP_NLRE_with_Conv_UniformSample_SDPThetaOnly_KnownPhi
-        # from Model_NLRE_SDP import Model_SDP_NLRE_with_Conv_EveryAngle_SDPThetaOnly
+        
+        from Model_SDP_NLRE_and_Regression import Loss_Reg as Loss_function
+        from Model_SDP_NLRE_and_Regression import validate_Reg as validate, metric_Reg as metric
 
-
-        # from Model_NLRE_SDP_with_Reg import Loss_Reg as Loss_function
-        # from Model_NLRE_SDP_with_Reg import validate_Reg as validate, metric_Reg as metric
-
-        # from Model_NLRE_SDP_with_Reg import Model_SDP_NLRE_with_Conv_Regression
+        from Model_SDP_NLRE_and_Regression import Model_SDP_NLRE_and_Regression_RegressionOnly
+        
         Models = [
-            # Model_SDP_NLRE_with_Conv,
-            # Model_SDP_NLRE_with_Conv_GaussianShift,
-            # Model_SDP_NLRE_with_Conv_GaussianShiftSeparated,
-            # Model_NLRE_with_Conv3d,
-            # Model_NLRE_with_Conv3d_AllIn_BatchShuffle,
-            # Model_NLRE_with_Conv3d_AllIn_BatchShuffle_SDPOnly,
-            # Model_SDP_NLRE_with_Conv_GaussianShift_SDPThetaOnly,
-            # Model_SDP_NLRE_with_Conv_GaussianShift_SDPPhiOnly,
-            # Model_SDP_NLRE_with_Conv_GaussianShift_Smart_SDPThetaOnly,
-            # Model_SDP_NLRE_with_Conv_GaussianShift_Smart_SDPPhiOnly,
-            Model_SDP_NLRE_with_Conv_UniformSample_SDPThetaOnly,
-            Model_SDP_NLRE_with_Conv_UniformSample_SDPPhiOnly,
-            # Model_SDP_NLRE_with_Conv_UniformSample_SDPThetaOnly_ZeroedSin,
-            # Model_SDP_NLRE_with_Conv_UniformSample_SDPThetaOnly_NoTrig,
-            # Model_SDP_NLRE_with_Conv_UniformSample_SDPThetaOnly_KnownPhi,
-            # Model_SDP_NLRE_with_Conv_EveryAngle_SDPThetaOnly,
-            # Model_SDP_NLRE_with_Conv_Regression,
+            Model_SDP_NLRE_and_Regression_RegressionOnly,
         ]
         
         if SelectNetwork is not None:
@@ -216,9 +186,9 @@ if __name__ == '__main__' and not TestingThings:
             'in_node_channels': 5   ,
             'in_edge_channels': 2   ,
             'in_aux_channels' : 0   ,
-            'N_kernels'       : 32  ,
+            'N_kernels'       : 64  ,
             'N_heads'         : 16  ,
-            'N_dense_nodes'   : 128  ,
+            'N_dense_nodes'   : 256  ,
             'N_LSTM_nodes'    : 5  ,
             'N_LSTM_layers'   : 3   ,
             'kernel_size'     : 10  ,
@@ -239,10 +209,23 @@ if __name__ == '__main__' and not TestingThings:
 
         for Model in Models:
             model = Model(**Model_Parameters).to(device)
-            if LoadModel and os.path.exists(ModelPath+model.Name+'.pt'):
-                model = torch.load(ModelPath+model.Name+'.pt')
-                tracker = torch.load(ModelPath+model.Name+'_Tracker.pt')
-                print(f'Loaded Model: {model.Name}')
+            if LoadModel:
+                if type(LoadModel) == bool and os.path.exists(ModelPath+model.Name+'.pt'):
+                    model = torch.load(ModelPath+model.Name+'.pt')
+                    tracker = torch.load(ModelPath+model.Name+'_Tracker.pt')
+                    print(f'Loaded Model: {model.Name}')
+                elif type(LoadModel) == str and os.path.exists(LoadModel):
+                    if LoadModel.endswith('Tracker.pt'):
+                        donation_model_tracker = torch.load(LoadModel)
+                        Model_state = donation_model_tracker.ModelStates[-1]
+                        Model_Parameters['RegressionBlockWeighs'] = Model_state['RegressionBlockWeighs']
+                        model = Model(**Model_Parameters).to(device)
+                    else:
+                        donation_model = torch.load(LoadModel)
+                        Model_Parameters['RegressionBlockWeighs'] = donation_model.state_dict()
+                        model = Model(**Model_Parameters).to(device)
+                else:
+                    print(f'Could not find model at {ModelPath+model.Name+".pt"}, training from scratch')
 
             print('Training Model')
             print()
