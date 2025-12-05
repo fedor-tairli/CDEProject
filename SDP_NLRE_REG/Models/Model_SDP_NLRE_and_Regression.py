@@ -352,6 +352,25 @@ class Model_SDP_NLRE_and_Regression(nn.Module):
 
         self.GaussianScale = kwargs['GaussianScale'] if 'GaussianScale' in kwargs else 5.0 # degrees
 
+    def Freeze_Regression_Block(self):
+        for param in self.conv_0_large.parameters(): param.requires_grad = False
+        for param in self.conv_0_small.parameters(): param.requires_grad = False
+        for param in self.conv_0.parameters(): param.requires_grad = False
+        for param in self.conv_1.parameters(): param.requires_grad = False
+        for param in self.conv_2.parameters(): param.requires_grad = False
+        for param in self.conv_3.parameters(): param.requires_grad = False
+        for param in self.conv_4.parameters(): param.requires_grad = False
+        for param in self.conv_5.parameters(): param.requires_grad = False
+        for param in self.Dense1.parameters(): param.requires_grad = False
+        for param in self.Dense2.parameters(): param.requires_grad = False
+        for param in self.Dense3.parameters(): param.requires_grad = False
+        for param in self.SDPTheta_Reg1.parameters(): param.requires_grad = False
+        for param in self.SDPTheta_Reg2.parameters(): param.requires_grad = False
+        for param in self.SDPTheta_Reg3.parameters(): param.requires_grad = False
+        for param in self.SDPPhi_Reg1.parameters(): param.requires_grad = False
+        for param in self.SDPPhi_Reg2.parameters(): param.requires_grad = False
+        for param in self.SDPPhi_Reg3.parameters(): param.requires_grad = False
+
 
 
     def forward(self,Main,Aux,Augmentation_Scale = None, Augmentation_Function = 'UniformNearSample',Augmentation_Magnitude = None):
@@ -555,38 +574,15 @@ class Model_SDP_NLRE_and_Regression_SDPThetaOnly(Model_SDP_NLRE_and_Regression):
         super(Model_SDP_NLRE_and_Regression_SDPThetaOnly, self).__init__(in_main_channels, N_kernels, N_dense_nodes, **kwargs)
         self.InWeights  = torch.tensor([1,0])
         self.OutWeights = torch.tensor([1,0])
-        self.OutputMode = 'Both'
-
+        self.OutputMode = 'Classification'
         # Apply the pre-trained weights if provided
         if 'RegressionBlockWeighs' in kwargs:
             pretrained_weights = kwargs['RegressionBlockWeighs']
             # print(pretrained_weights)
             self.load_state_dict(pretrained_weights)
-            # self.conv_0_large.load_state_dict(pretrained_weights['conv_0_large'])
-            # self.conv_0_small.load_state_dict(pretrained_weights['conv_0_small'])
-            # self.conv_0      .load_state_dict(pretrained_weights['conv_0'])
-            # self.conv_1      .load_state_dict(pretrained_weights['conv_1'])
-            # self.conv_2      .load_state_dict(pretrained_weights['conv_2'])
-            # self.conv_3      .load_state_dict(pretrained_weights['conv_3'])
-            # self.conv_4      .load_state_dict(pretrained_weights['conv_4'])
-            # self.conv_5      .load_state_dict(pretrained_weights['conv_5'])
+            self.Freeze_Regression_Block()
 
-            # self.BN_0        .load_state_dict(pretrained_weights['BN_0'])
-            # self.BN_1        .load_state_dict(pretrained_weights['BN_1'])
-            # self.BN_2        .load_state_dict(pretrained_weights['BN_2'])
-            # self.BN_3        .load_state_dict(pretrained_weights['BN_3'])
-            # self.BN_4        .load_state_dict(pretrained_weights['BN_4'])
-            # self.BN_5        .load_state_dict(pretrained_weights['BN_5'])
 
-            # self.Dense1        .load_state_dict(pretrained_weights['Dense1'])
-            # self.Dense2        .load_state_dict(pretrained_weights['Dense2'])
-            # self.Dense3        .load_state_dict(pretrained_weights['Dense3'])
-            # self.SDPTheta_Reg1 .load_state_dict(pretrained_weights['SDPTheta_Reg1'])
-            # self.SDPTheta_Reg2 .load_state_dict(pretrained_weights['SDPTheta_Reg2'])
-            # self.SDPTheta_Reg3 .load_state_dict(pretrained_weights['SDPTheta_Reg3'])
-            # self.SDPPhi_Reg1   .load_state_dict(pretrained_weights['SDPPhi_Reg1'])
-            # self.SDPPhi_Reg2   .load_state_dict(pretrained_weights['SDPPhi_Reg2'])
-            # self.SDPPhi_Reg3   .load_state_dict(pretrained_weights['SDPPhi_Reg3'])
 
 
 class Model_SDP_NLRE_and_Regression_SDPPhiOnly(Model_SDP_NLRE_and_Regression):
@@ -605,35 +601,9 @@ class Model_SDP_NLRE_and_Regression_SDPPhiOnly(Model_SDP_NLRE_and_Regression):
         super(Model_SDP_NLRE_and_Regression_SDPPhiOnly, self).__init__(in_main_channels, N_kernels, N_dense_nodes, **kwargs)
         self.InWeights  = torch.tensor([0,1])
         self.OutWeights = torch.tensor([0,1])
-        self.OutputMode = 'Both'
-
+        self.OutputMode = 'Classification'
         # Apply the pre-trained weights if provided
         if 'RegressionBlockWeighs' in kwargs:
             pretrained_weights = kwargs['RegressionBlockWeighs']
             self.load_state_dict(pretrained_weights)
-            # self.conv_0_large.load_state_dict(pretrained_weights['conv_0_large'])
-            # self.conv_0_small.load_state_dict(pretrained_weights['conv_0_small'])
-            # self.conv_0      .load_state_dict(pretrained_weights['conv_0'])
-            # self.conv_1      .load_state_dict(pretrained_weights['conv_1'])
-            # self.conv_2      .load_state_dict(pretrained_weights['conv_2'])
-            # self.conv_3      .load_state_dict(pretrained_weights['conv_3'])
-            # self.conv_4      .load_state_dict(pretrained_weights['conv_4'])
-            # self.conv_5      .load_state_dict(pretrained_weights['conv_5'])
-
-            # self.BN_0        .load_state_dict(pretrained_weights['BN_0'])
-            # self.BN_1        .load_state_dict(pretrained_weights['BN_1'])
-            # self.BN_2        .load_state_dict(pretrained_weights['BN_2'])
-            # self.BN_3        .load_state_dict(pretrained_weights['BN_3'])
-            # self.BN_4        .load_state_dict(pretrained_weights['BN_4'])
-            # self.BN_5        .load_state_dict(pretrained_weights['BN_5'])
-
-            # self.Dense1        .load_state_dict(pretrained_weights['Dense1'])
-            # self.Dense2        .load_state_dict(pretrained_weights['Dense2'])
-            # self.Dense3        .load_state_dict(pretrained_weights['Dense3'])
-            # self.SDPTheta_Reg1 .load_state_dict(pretrained_weights['SDPTheta_Reg1'])
-            # self.SDPTheta_Reg2 .load_state_dict(pretrained_weights['SDPTheta_Reg2'])
-            # self.SDPTheta_Reg3 .load_state_dict(pretrained_weights['SDPTheta_Reg3'])
-            # self.SDPPhi_Reg1   .load_state_dict(pretrained_weights['SDPPhi_Reg1'])
-            # self.SDPPhi_Reg2   .load_state_dict(pretrained_weights['SDPPhi_Reg2'])
-            # self.SDPPhi_Reg3   .load_state_dict(pretrained_weights['SDPPhi_Reg3'])
-
+            self.Freeze_Regression_Block()
