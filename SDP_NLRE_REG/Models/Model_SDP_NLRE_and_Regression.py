@@ -422,7 +422,7 @@ class Model_SDP_NLRE_and_Regression(nn.Module):
             Augmentation_Scale = 10
         
         if (Augmentation_Magnitude is None) and (Augmentation_Function == 'UniformNearSample'):
-            Augmentation_Magnitude =  10*torch.pi/180.0 # 10 degrees in radians
+            Augmentation_Magnitude =  1/10*torch.pi/180.0 # 10 degrees in radians
 
         Preds_list             = []
         Augmented_RecVals_list = []
