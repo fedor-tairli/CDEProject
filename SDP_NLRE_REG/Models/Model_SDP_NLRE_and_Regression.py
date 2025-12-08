@@ -15,9 +15,9 @@ from typing import Union, Tuple # needed for the expected/default values of the 
 
 
 # Define the Loss Function
-    
-    
-def Loss_Reg(Pred,Truth,keys = ['SDPTheta','SDPPhi'],ReturnTensor = True):
+
+
+def Loss_Reg_old(Pred,Truth,keys = ['SDPTheta','SDPPhi'],ReturnTensor = True):
     '''
     Mean Squared Error Loss for Regression Values
     Binary cross entropy loss for all predicted values. 
@@ -107,7 +107,79 @@ def Loss_Reg(Pred,Truth,keys = ['SDPTheta','SDPPhi'],ReturnTensor = True):
         losses = {key:loss.item() for key,loss in losses.items()}
         return losses
 
-   
+def Loss_Reg(Pred, Truth, keys=['SDPTheta','SDPPhi'], ReturnTensor=True):
+    assert isinstance(Pred,(list,tuple,dict))
+    assert len(Pred)==3
+
+    Pred_Classes = Pred[0]
+    RecValues    = Pred[1]
+    Reg_Values   = Pred[2]
+
+    Train_Style = 'Both'
+    if Pred_Classes is None: Train_Style='Regression'
+    if Reg_Values   is None: Train_Style='Classification'
+
+    Device = (Pred_Classes if Train_Style!='Regression' else Reg_Values).device
+
+    if Train_Style in ['Classification','Both']:
+        Pred_Classes = Pred_Classes.to(Device)
+        RecValues    = RecValues.to(Device)
+    if Train_Style in ['Regression','Both']:
+        Reg_Values = Reg_Values.to(Device)
+
+    Truth = Truth.to(Device)
+
+    # ------------------------
+    #   Classification Setup
+    # ------------------------
+    if Train_Style in ['Classification','Both']:
+        assert RecValues.shape[0] % Truth.shape[0] == 0
+        Augmentation_Scale = RecValues.shape[0] // Truth.shape[0]
+        Truth_RecValues = Truth.repeat_interleave(Augmentation_Scale, dim=0)
+
+        # ---- Gaussian targets for sharp likelihood ----
+        sigma = 1/8 * torch.pi/180.0  # 1/8 degree in radians -  half of augmentation step
+        gaussian_targets = torch.exp(
+            -0.5 * ((RecValues - Truth_RecValues) ** 2) / (sigma**2)
+        ).detach()
+
+    # ------------------------
+    #   Regression Setup
+    # ------------------------
+    if Train_Style in ['Regression','Both']:
+        TruthThetaSin = torch.sin(Truth[:,0]).unsqueeze(1)
+        TruthThetaCos = torch.cos(Truth[:,0]).unsqueeze(1)
+        TruthPhiSin   = torch.sin(Truth[:,1]).unsqueeze(1)
+        TruthPhiCos   = torch.cos(Truth[:,1]).unsqueeze(1)
+        TruthReg = torch.cat([TruthThetaSin,TruthThetaCos,TruthPhiSin,TruthPhiCos], dim=1)
+
+    losses = {}
+    for i,key in enumerate(keys):
+
+        # Regression Part
+        if Train_Style in ['Regression','Both']:
+            if 'SDPTheta' in key:
+                losses[key+'_Reg'] = F.mse_loss(Reg_Values[:,0:2], TruthReg[:,0:2])
+            elif 'SDPPhi' in key:
+                losses[key+'_Reg'] = F.mse_loss(Reg_Values[:,2:4], TruthReg[:,2:4])
+            else:
+                raise ValueError
+        else:
+            losses[key+'_Reg'] = torch.zeros(1, device=Device)
+
+        # Classification Part
+        if Train_Style in ['Classification','Both']:
+            losses[key+'_Cls'] = F.mse_loss(Pred_Classes[:,i], gaussian_targets[:,i])
+        else:
+            losses[key+'_Cls'] = torch.zeros(1, device=Device)
+
+        losses[key] = losses[key+'_Reg'] + losses[key+'_Cls']
+
+    losses['Total'] = sum(losses[k] for k in keys)
+
+    if ReturnTensor: return losses
+    return {k: v.item() for k,v in losses.items()}
+
 
 def validate_Reg(model,Dataset,Loss,device,BatchSize = 64):
     '''
@@ -168,7 +240,6 @@ def validate_Reg(model,Dataset,Loss,device,BatchSize = 64):
     Dataset.BatchSize = Dataset.BatchSize//(BatchSize//8)
 
     return Loss([Preds,RecVals,RegVals],Truths,keys=Dataset.Truth_Keys,ReturnTensor=False)
-
 
 
 def metric_Reg(model,Dataset,device,keys=['SDPTheta','SDPPhi'],BatchSize = 64,metric_style = 'Accuracy'):
@@ -246,9 +317,6 @@ def metric_Reg(model,Dataset,device,keys=['SDPTheta','SDPPhi'],BatchSize = 64,me
     return metrics
 
 
-
-
-
 class Conv_Skip_Block(nn.Module):
     def __init__(self, in_channels, N_kernels,activation_function, kernel_size=3, padding=1, stride=1, dropout=0.0):
         assert in_channels == N_kernels, 'Input and Output Channels should be same'
@@ -262,10 +330,6 @@ class Conv_Skip_Block(nn.Module):
         x = self.activation_function(self.conv2(x))
         return x + x_residual
 
-
-
-
-    
 
 class Model_SDP_NLRE_and_Regression(nn.Module):
     Name = 'Model_SDP_NLRE_and_Regression'
@@ -438,10 +502,10 @@ class Model_SDP_NLRE_and_Regression(nn.Module):
 
         # Here Be Augmentation
         if Augmentation_Scale is None:
-            Augmentation_Scale = 10
+            Augmentation_Scale = 20
         
         if (Augmentation_Magnitude is None) and (Augmentation_Function == 'UniformNearSample'):
-            Augmentation_Magnitude =  1/10*torch.pi/180.0 # 10 degrees in radians
+            Augmentation_Magnitude =  1/4*torch.pi/180.0 # 10 degrees in radians
 
         Preds_list             = []
         Augmented_RecVals_list = []
@@ -458,7 +522,7 @@ class Model_SDP_NLRE_and_Regression(nn.Module):
             # Augmentation for classification is done around the true rec vals
 
             if Augmentation_Function == 'UniformNearSample':
-                for aug_step in range(-Augmentation_Scale, Augmentation_Scale):
+                for aug_step in range(-Augmentation_Scale//2, Augmentation_Scale//2):
                     Aug_Rec_Theta = Regression_Expectation_Theta + aug_step * Augmentation_Magnitude * self.InWeights[0]
                     Aug_Rec_Phi   = Regression_Expectation_Phi   + aug_step * Augmentation_Magnitude * self.InWeights[1]
                 
@@ -539,7 +603,6 @@ class Model_SDP_NLRE_and_Regression(nn.Module):
                 return [These_Preds,RecVals,Reg_RecVals]
 
 
-
 class Model_SDP_NLRE_and_Regression_RegressionOnly(Model_SDP_NLRE_and_Regression):
     Name = 'Model_SDP_NLRE_and_Regression_RegressionOnly'
     Description = '''
@@ -574,15 +637,13 @@ class Model_SDP_NLRE_and_Regression_SDPThetaOnly(Model_SDP_NLRE_and_Regression):
         super(Model_SDP_NLRE_and_Regression_SDPThetaOnly, self).__init__(in_main_channels, N_kernels, N_dense_nodes, **kwargs)
         self.InWeights  = torch.tensor([1,0])
         self.OutWeights = torch.tensor([1,0])
-        self.OutputMode = 'Classification'
+        self.OutputMode = 'Both'
         # Apply the pre-trained weights if provided
         if 'RegressionBlockWeighs' in kwargs:
             pretrained_weights = kwargs['RegressionBlockWeighs']
             # print(pretrained_weights)
             self.load_state_dict(pretrained_weights)
             self.Freeze_Regression_Block()
-
-
 
 
 class Model_SDP_NLRE_and_Regression_SDPPhiOnly(Model_SDP_NLRE_and_Regression):
@@ -601,7 +662,7 @@ class Model_SDP_NLRE_and_Regression_SDPPhiOnly(Model_SDP_NLRE_and_Regression):
         super(Model_SDP_NLRE_and_Regression_SDPPhiOnly, self).__init__(in_main_channels, N_kernels, N_dense_nodes, **kwargs)
         self.InWeights  = torch.tensor([0,1])
         self.OutWeights = torch.tensor([0,1])
-        self.OutputMode = 'Classification'
+        self.OutputMode = 'Both'
         # Apply the pre-trained weights if provided
         if 'RegressionBlockWeighs' in kwargs:
             pretrained_weights = kwargs['RegressionBlockWeighs']
