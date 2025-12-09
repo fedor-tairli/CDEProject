@@ -207,7 +207,7 @@ if __name__ == '__main__' and not TestingThings:
             'accumulation_steps': 1,
             'epoch_done': 0,
             'batchBreak': 1e99,
-            'ValLossIncreasePatience': 5,
+            'ValLossIncreasePatience': 10,
             'Optimiser': 'Adam'
         }
 
