@@ -16,8 +16,8 @@ from typing import Union, Tuple # needed for the expected/default values of the 
 
 # Define the Loss Function
 
-
-def Loss_Reg_old(Pred,Truth,keys = ['SDPTheta','SDPPhi'],ReturnTensor = True):
+# Old - BCE loss
+def Loss_Reg(Pred,Truth,keys = ['SDPTheta','SDPPhi'],ReturnTensor = True):
     '''
     Mean Squared Error Loss for Regression Values
     Binary cross entropy loss for all predicted values. 
@@ -54,7 +54,7 @@ def Loss_Reg_old(Pred,Truth,keys = ['SDPTheta','SDPPhi'],ReturnTensor = True):
 
         Augmentation_Scale = RecValues.shape[0] // Truth.shape[0]
         Truth_RecValues    = Truth.repeat_interleave(Augmentation_Scale,dim = 0)
-        Truth_Classes = (torch.abs(RecValues - Truth_RecValues) < 1e-3).float()
+        Truth_Classes = (torch.abs(RecValues - Truth_RecValues) < 2.1*torch.pi/180).float() # within 1/3.5 degrees which is slightly larger than the augmentation step of 1/4 degree
         
         # Now, calculate the weights for each guess
         Augmentation_magnitude = torch.abs(RecValues - Truth_RecValues)
@@ -62,7 +62,7 @@ def Loss_Reg_old(Pred,Truth,keys = ['SDPTheta','SDPPhi'],ReturnTensor = True):
         weights = torch.ones_like(Truth_Classes)
         label_T = Truth_Classes == 1
         label_F = Truth_Classes == 0 
-        weights[label_T] = Augmentation_Scale # Need to balance the positives and negatives
+        weights[label_T] = Augmentation_Scale/torch.sum(label_T).float() # Will give equal KINDA weight to pos/neg samples
         weights[label_F] = Augmentation_magnitude[label_F]* 5 * Pred_Classes[label_F]
         weights = weights.detach()
         
@@ -107,7 +107,8 @@ def Loss_Reg_old(Pred,Truth,keys = ['SDPTheta','SDPPhi'],ReturnTensor = True):
         losses = {key:loss.item() for key,loss in losses.items()}
         return losses
 
-def Loss_Reg(Pred, Truth, keys=['SDPTheta','SDPPhi'], ReturnTensor=True):
+# New -  Gaussian MSE loss
+def Loss_Reg_new(Pred, Truth, keys=['SDPTheta','SDPPhi'], ReturnTensor=True):
     assert isinstance(Pred,(list,tuple,dict))
     assert len(Pred)==3
 
@@ -138,7 +139,7 @@ def Loss_Reg(Pred, Truth, keys=['SDPTheta','SDPPhi'], ReturnTensor=True):
         Truth_RecValues = Truth.repeat_interleave(Augmentation_Scale, dim=0)
 
         # ---- Gaussian targets for sharp likelihood ----
-        sigma = 1/8 * torch.pi/180.0  # 1/8 degree in radians -  half of augmentation step
+        sigma = 1/2 * torch.pi/180.0  # 1/2 degree in radians -  half of augmentation step
         gaussian_targets = torch.exp(
             -0.5 * ((RecValues - Truth_RecValues) ** 2) / (sigma**2)
         ).detach()
@@ -502,10 +503,10 @@ class Model_SDP_NLRE_and_Regression(nn.Module):
 
         # Here Be Augmentation
         if Augmentation_Scale is None:
-            Augmentation_Scale = 20
+            Augmentation_Scale = 26
         
         if (Augmentation_Magnitude is None) and (Augmentation_Function == 'UniformNearSample'):
-            Augmentation_Magnitude =  1/4*torch.pi/180.0 # 10 degrees in radians
+            Augmentation_Magnitude =  2*torch.pi/180.0 # 2 degrees in radians
 
         Preds_list             = []
         Augmented_RecVals_list = []
@@ -643,7 +644,7 @@ class Model_SDP_NLRE_and_Regression_SDPThetaOnly(Model_SDP_NLRE_and_Regression):
             pretrained_weights = kwargs['RegressionBlockWeighs']
             # print(pretrained_weights)
             self.load_state_dict(pretrained_weights)
-            self.Freeze_Regression_Block()
+            # self.Freeze_Regression_Block()
 
 
 class Model_SDP_NLRE_and_Regression_SDPPhiOnly(Model_SDP_NLRE_and_Regression):
@@ -667,4 +668,4 @@ class Model_SDP_NLRE_and_Regression_SDPPhiOnly(Model_SDP_NLRE_and_Regression):
         if 'RegressionBlockWeighs' in kwargs:
             pretrained_weights = kwargs['RegressionBlockWeighs']
             self.load_state_dict(pretrained_weights)
-            self.Freeze_Regression_Block()
+            # self.Freeze_Regression_Block()
