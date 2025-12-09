@@ -107,79 +107,6 @@ def Loss_Reg(Pred,Truth,keys = ['SDPTheta','SDPPhi'],ReturnTensor = True):
         losses = {key:loss.item() for key,loss in losses.items()}
         return losses
 
-# New -  Gaussian MSE loss
-def Loss_Reg_new(Pred, Truth, keys=['SDPTheta','SDPPhi'], ReturnTensor=True):
-    assert isinstance(Pred,(list,tuple,dict))
-    assert len(Pred)==3
-
-    Pred_Classes = Pred[0]
-    RecValues    = Pred[1]
-    Reg_Values   = Pred[2]
-
-    Train_Style = 'Both'
-    if Pred_Classes is None: Train_Style='Regression'
-    if Reg_Values   is None: Train_Style='Classification'
-
-    Device = (Pred_Classes if Train_Style!='Regression' else Reg_Values).device
-
-    if Train_Style in ['Classification','Both']:
-        Pred_Classes = Pred_Classes.to(Device)
-        RecValues    = RecValues.to(Device)
-    if Train_Style in ['Regression','Both']:
-        Reg_Values = Reg_Values.to(Device)
-
-    Truth = Truth.to(Device)
-
-    # ------------------------
-    #   Classification Setup
-    # ------------------------
-    if Train_Style in ['Classification','Both']:
-        assert RecValues.shape[0] % Truth.shape[0] == 0
-        Augmentation_Scale = RecValues.shape[0] // Truth.shape[0]
-        Truth_RecValues = Truth.repeat_interleave(Augmentation_Scale, dim=0)
-
-        # ---- Gaussian targets for sharp likelihood ----
-        sigma = 1/2 * torch.pi/180.0  # 1/2 degree in radians -  half of augmentation step
-        gaussian_targets = torch.exp(
-            -0.5 * ((RecValues - Truth_RecValues) ** 2) / (sigma**2)
-        ).detach()
-
-    # ------------------------
-    #   Regression Setup
-    # ------------------------
-    if Train_Style in ['Regression','Both']:
-        TruthThetaSin = torch.sin(Truth[:,0]).unsqueeze(1)
-        TruthThetaCos = torch.cos(Truth[:,0]).unsqueeze(1)
-        TruthPhiSin   = torch.sin(Truth[:,1]).unsqueeze(1)
-        TruthPhiCos   = torch.cos(Truth[:,1]).unsqueeze(1)
-        TruthReg = torch.cat([TruthThetaSin,TruthThetaCos,TruthPhiSin,TruthPhiCos], dim=1)
-
-    losses = {}
-    for i,key in enumerate(keys):
-
-        # Regression Part
-        if Train_Style in ['Regression','Both']:
-            if 'SDPTheta' in key:
-                losses[key+'_Reg'] = F.mse_loss(Reg_Values[:,0:2], TruthReg[:,0:2])
-            elif 'SDPPhi' in key:
-                losses[key+'_Reg'] = F.mse_loss(Reg_Values[:,2:4], TruthReg[:,2:4])
-            else:
-                raise ValueError
-        else:
-            losses[key+'_Reg'] = torch.zeros(1, device=Device)
-
-        # Classification Part
-        if Train_Style in ['Classification','Both']:
-            losses[key+'_Cls'] = F.mse_loss(Pred_Classes[:,i], gaussian_targets[:,i])
-        else:
-            losses[key+'_Cls'] = torch.zeros(1, device=Device)
-
-        losses[key] = losses[key+'_Reg'] + losses[key+'_Cls']
-
-    losses['Total'] = sum(losses[k] for k in keys)
-
-    if ReturnTensor: return losses
-    return {k: v.item() for k,v in losses.items()}
 
 
 def validate_Reg(model,Dataset,Loss,device,BatchSize = 64):
@@ -669,3 +596,192 @@ class Model_SDP_NLRE_and_Regression_SDPPhiOnly(Model_SDP_NLRE_and_Regression):
             pretrained_weights = kwargs['RegressionBlockWeighs']
             self.load_state_dict(pretrained_weights)
             # self.Freeze_Regression_Block()
+
+
+
+class Model_SDP_NLRE_and_Regression_RawLogits(Model_SDP_NLRE_and_Regression):
+    Name = 'Model_SDP_NLRE_and_Regression_RawLogits'
+    Description = '''
+    Convolutional Neural Network for SDP Reconstruction
+    Uses standard Conv2d Layers in blocks with residual connections
+    Reconstruction is done for single telescope
+    Outputs continuous values for Theta and Phi - Used in training. Regression Loss should be used here
+    Also Outputs the likelihood of the reconstruction being correct - Used in inference. Binary Cross Entropy Loss should be used here
+    --
+    Outputs raw logits for the classification with competition, not individual sigmoid activations
+    '''
+
+    # Init, same as parent
+    
+    def forward(self,Main,Aux,Augmentation_Scale = None, Augmentation_Function = 'UniformNearSample',Augmentation_Magnitude = None):
+        self.device = self.Dense1.weight.device
+
+        all_dict = {
+            'Main': Main,
+            'Aux': Aux,
+            'Augmentation_Scale': Augmentation_Scale,
+            'Augmentation_Function': Augmentation_Function,
+            'Augmentation_Magnitude': Augmentation_Magnitude,
+            'device': self.device
+        }
+
+
+        all_dict = self.parse_inputs(all_dict)
+        all_dict = self.Regression_block(all_dict)
+
+        if self.OutputMode == 'Regression':
+            return [None,None,all_dict['Reg_RecVals']]
+        
+        all_dict = self.Classification_block(all_dict)
+        if self.OutputMode == 'Classification': return [all_dict['Preds'],all_dict['Augmented_RecVals'],None]
+        if self.OutputMode == 'Both': return [all_dict['Preds'],all_dict['Augmented_RecVals'],all_dict['Reg_RecVals']]
+        raise ValueError(f'Output Mode {self.OutputMode} not recognized')
+
+    def parse_inputs(self, all_dict):
+        Main = all_dict['Main']
+        device = all_dict['device']
+        
+        assert self.OutputMode in ['Both','Regression','Classification'], f'Output Mode {self.OutputMode} not recognized'
+        if self.OutputMode != 'Regression':
+            assert self.InWeights.sum() == 1, 'This Network is designed to reconstruct only one of Theta or Phi, Not Both. Set InWeights accordingly'
+            assert self.OutWeights.sum() == 1, 'This Network is designed to reconstruct only one of Theta or Phi, Not Both. Set OutWeights accordingly'
+
+        assert len(Main) == 2, 'Two Mains are expected'
+
+        
+        if Main[0].ndim == 4: # Main should have 3 dims, RecVals 2 dims , forwards order
+            RecVals = Main[1].to(device)
+            Main    = Main[0].to(device)
+        elif Main[1].ndim == 4: # Backwards order
+            RecVals = Main[0].to(device)
+            Main    = Main[1].to(device)
+        else:
+            raise ValueError('Cannot determine Main and RecVals')
+        all_dict['Main']    = Main
+        all_dict['RecVals'] = RecVals
+        return all_dict
+    
+    def Regression_block(self, all_dict):
+        Main    = all_dict['Main']
+        RecVals = all_dict['RecVals']
+        device  = all_dict['device']
+
+        Main_L = self.Conv_Activation(self.conv_0_large(Main))
+        Main_S = self.Conv_Activation(self.conv_0_small(Main))
+        Main = torch.cat([Main_L,Main_S],dim=1)
+        Main = self.Conv_Dropout(self.Conv_Activation(self.conv_0(Main)))
+        Main = self.BN_0(Main)
+        
+    
+        Main = self.BN_1(self.Conv_Dropout(self.conv_1(Main)))
+        Main = self.BN_2(self.Conv_Dropout(self.conv_2(Main)))
+        Main = self.BN_3(self.Conv_Dropout(self.conv_3(Main)))
+        Main = self.BN_4(self.Conv_Dropout(self.conv_4(Main)))
+        Main = self.BN_5(self.Conv_Dropout(self.conv_5(Main)))
+
+    
+        # Flatten the output
+        Main = Main.view(Main.shape[0],-1)
+        
+        # Dense and Output Layers
+        Main = self.Dense_Activation(self.Dense1(Main))
+        Main = self.Dense_Activation(self.Dense2(Main))
+        Main = self.Dense_Activation(self.Dense3(Main))
+       
+        # Regression is done without augmentation
+        Theta_Reg = self.Dense_Dropout(self.Dense_Activation(self.SDPTheta_Reg1(Main)))
+        Theta_Reg = self.Dense_Dropout(self.Dense_Activation(self.SDPTheta_Reg2(Theta_Reg)))
+        Theta_Reg = self.Angle_Activation(self.SDPTheta_Reg3(Theta_Reg))
+        # Theta_Reg = self.SDPTheta_Reg3(Theta_Reg)
+
+        Phi_Reg   = self.Dense_Dropout(self.Dense_Activation(self.SDPPhi_Reg1(Main)))
+        Phi_Reg   = self.Dense_Dropout(self.Dense_Activation(self.SDPPhi_Reg2(Phi_Reg)))
+        Phi_Reg   = self.Angle_Activation(self.SDPPhi_Reg3(Phi_Reg)) 
+        # Phi_Reg   = self.SDPPhi_Reg3(Phi_Reg)
+
+        Reg_RecVals = torch.cat([Theta_Reg * self.OutWeights[0].to(device),
+                                 Phi_Reg   * self.OutWeights[1].to(device)
+                                 ],dim=1) 
+        
+        all_dict['Main']    = Main
+        all_dict['Theta_Reg'] = Theta_Reg
+        all_dict['Phi_Reg']   = Phi_Reg
+        all_dict['Reg_RecVals'] = Reg_RecVals
+        
+        return all_dict
+
+    def Classification_block(self, all_dict):
+        Main    = all_dict['Main']
+        Theta_Reg = all_dict['Theta_Reg']
+        Phi_Reg   = all_dict['Phi_Reg']
+        # Reg_RecVals = all_dict['Reg_RecVals']
+        device  = all_dict['device']
+        
+        if all_dict['Augmentation_Scale'] is None:
+            all_dict['Augmentation_Scale'] = 26
+            
+        if (all_dict['Augmentation_Magnitude'] is None) and (all_dict['Augmentation_Function'] == 'UniformNearSample'):
+            all_dict['Augmentation_Magnitude'] =  0.5*torch.pi/180.0 # 0.5 degrees in radians
+
+        if all_dict['Augmentation_Function'] != 'NoAugmentation':
+            if all_dict['Augmentation_Function'] == 'UniformNearSample':
+
+                Preds_list             = []
+                Augmented_RecVals_list = []
+
+                Regression_Expectation_Theta = Theta_Reg.detach()
+                Regression_Expectation_Theta = torch.atan2(Theta_Reg[:,0],Theta_Reg[:,1]).unsqueeze(1)
+                Regression_Expectation_Phi   = Phi_Reg  .detach()
+                Regression_Expectation_Phi   = torch.atan2(Phi_Reg  [:,0],Phi_Reg  [:,1]).unsqueeze(1)
+
+                for aug_step in range(-all_dict['Augmentation_Scale']//2, all_dict['Augmentation_Scale']//2):
+                    Aug_Rec_Theta = Regression_Expectation_Theta + aug_step * all_dict['Augmentation_Magnitude'] * self.InWeights[0]
+                    Aug_Rec_Phi   = Regression_Expectation_Phi   + aug_step * all_dict['Augmentation_Magnitude'] * self.InWeights[1]
+                
+                    These_Aug_RecVals = torch.cat([Aug_Rec_Theta,Aug_Rec_Phi],dim=1)
+                    Augmented_RecVals_list.append(These_Aug_RecVals)
+                
+                    # Aug Rec Vals Are the :
+                    # - Augmented Reconstruction Value Theta/Phi, depending on the model we are Training
+                    # - And the Regression Prediction for the Other value
+                    
+                    if self.OutWeights[0] == 1:
+                        Aug_Rec_Theta = torch.cat([torch.sin(Aug_Rec_Theta),torch.cos(Aug_Rec_Theta)],dim=1)
+                        Theta_Cls_Inp = torch.cat([Main,Theta_Reg,Phi_Reg,Aug_Rec_Theta],dim=1)
+                        
+                        Theta = self.Dense_Activation(self.SDPTheta_Cls1(Theta_Cls_Inp))
+                        Theta = self.Dense_Activation(self.SDPTheta_Cls2(Theta))
+                        Theta = self.SDPTheta_Cls3(Theta)  # Raw Logits
+                    else:
+                        Theta = torch.tensor([[0.0]]).repeat(Main.shape[0],1).to(device)
+
+                    if self.OutWeights[1] == 1:
+                        Aug_Rec_Phi = torch.cat([torch.sin(Aug_Rec_Phi),torch.cos(Aug_Rec_Phi)],dim=1)
+                        Phi_Cls_Inp = torch.cat([Main,Theta_Reg,Phi_Reg,Aug_Rec_Phi],dim=1)
+
+                        Phi = self.Dense_Activation(self.SDPPhi_Cls1(Phi_Cls_Inp))
+                        Phi = self.Dense_Activation(self.SDPPhi_Cls2(Phi))
+                        Phi = self.SDPPhi_Cls3(Phi)  # Raw Logits
+                    else:
+                        Phi = torch.tensor([[0.0]]).repeat(Main.shape[0],1).to(device)
+                    
+                    These_Preds = torch.cat([Theta,Phi],dim=1)
+                    Preds_list.append(These_Preds)
+            else:
+                raise NotImplementedError(f'Augmentation Function {all_dict["Augmentation_Function"]} not implemented')
+            
+            Preds             = torch.stack(Preds_list            ,dim=1) # Raw Logits
+            Augmented_RecVals = torch.stack(Augmented_RecVals_list,dim=1) # Corresponding Rec Vals
+
+            Preds = torch.softmax(Preds,dim=1)  # Convert to Probabilities
+            Preds             = Preds            .permute(0,2,1).reshape(-1,self.in_RecValues_channels)
+            Augmented_RecVals = Augmented_RecVals.permute(1,0,2).reshape(-1,self.in_RecValues_channels)
+
+
+            # This reshaping works with the current loss functions.
+            all_dict['Preds']             = Preds
+            all_dict['Augmented_RecVals'] = Augmented_RecVals
+            return all_dict
+        else:
+            raise NotImplementedError('NoAugmentation not implemented for Raw Logits Model')
+                
