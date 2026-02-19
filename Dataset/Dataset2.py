@@ -48,12 +48,18 @@ class EventContainer:
 
     def add_event_value(self,key,value):
         '''Add a value to the event'''
-        self._event_data[0,self.Event_level_keys[key]] = value
+        try:
+            self._event_data[0,self.Event_level_keys[key]] = value
+        except Exception as e:
+            print(f"Error adding event value '{key}' - {value}: {e}")
     
     def add_pixel_value(self,key,value):
         '''Add a value to the pixel'''
-        self._pixel_data[self.Number_of_pixels,self.Pixel_level_keys[key]] = value
-    
+        try:
+            self._pixel_data[self.Number_of_pixels,self.Pixel_level_keys[key]] = value
+        except Exception as e:
+            print(f"Error adding pixel value '{key}' - {value}: {e}")
+
     def add_trace_values(self,trace):
         '''Add a trace to the pixel'''
         self._trace_data[self.Number_of_pixels,:] = trace
