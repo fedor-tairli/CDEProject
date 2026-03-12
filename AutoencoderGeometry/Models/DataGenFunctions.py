@@ -27,18 +27,18 @@ def Clean_Data_DoNothing(Dataset):
     pass
 
 # Import the functions from the other files, this is just the selection of the used functions
-import NLRE_and_Reg_DataGen
+import Autoencoder_OnePix_DataGen
 
 # Data Generation Functions
-Pass_Main     = Pass_Main_DoNothing
+Pass_Main     = Autoencoder_OnePix_DataGen.Graph_Autoencoder_TimeFit
 
-Pass_Aux      = NLRE_and_Reg_DataGen.Aux_FullRecValues
+Pass_Aux      = Autoencoder_OnePix_DataGen.Aux_Descriptors
 
-Pass_Truth    = NLRE_and_Reg_DataGen.Result_SDPRecValues
+Pass_Truth    = Autoencoder_OnePix_DataGen.Truth_Rec_Time_Fit
 
 Pass_Rec      = Pass_Rec_DoNothing
 
-Pass_Graph    = NLRE_and_Reg_DataGen.Main_Conv2d_Grid_Charge_and_Time
+Pass_Graph    = Pass_Graph_DoNothing
 
 Pass_MetaData = Pass_MetaData_DoNothing
 

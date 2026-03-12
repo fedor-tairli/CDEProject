@@ -12,8 +12,6 @@ import torch
 # import torch.nn.functional as F
 import torch.optim as optim
 import torch.utils.data as data
-torch.set_printoptions(threshold=512, linewidth=512)
-
 hostname = os.uname()
 if 'tycho' in hostname:
     # Common folder is already in the path
@@ -110,20 +108,15 @@ if __name__ == '__main__' and not TestingThings:
     # Flags
     Set_Custom_Seed      = False
     Use_Test_Set         = False
-    Use_All_Sets         = True
+    Use_All_Sets         = False
     Dataset_RandomIter   = True
     RecalculateDataset   = False
     NeedTraces           = True
     LoadModel            = False # Can be bool or str path to model/tracker
     # LoadModel = '/remote/tychodata/ftairli/work/CDEs/
     DoNotTrain           = False
-    DatasetName          = 'Autoencoder_TimeFit_Dataset' #No / or .pt JUST NAME, eg GraphStructure  Use None to save as default
+    DatasetName          = 'Autoencoder_OnePix_Dataset' #No / or .pt JUST NAME, eg GraphStructure  Use None to save as default
 
-    Debug_Mode           = False
-
-    if Debug_Mode: 
-        Use_All_Sets = False
-        Use_Test_Set = True
 
     if DoNotTrain: assert RecalculateDataset, 'Recalculate Dataset must be True if DoNotTrain is True'
 
@@ -135,7 +128,7 @@ if __name__ == '__main__' and not TestingThings:
 
     # Save Paths
     SavePath     = os.path.abspath('../Models/') + '/'
-    plotSavePath = None # os.path.abspath('../Results/TrainingPlots/') + '/' # or "None" to not make plots
+    plotSavePath = os.path.abspath('../Results/TrainingPlots/') + '/'
     LogPath      = os.path.abspath('../../TrainingLogs/') + '/'
     # Check that all the paths exist
     assert os.path.exists(SavePath)     , f'SavePath {SavePath} does not exist'
@@ -152,8 +145,7 @@ if __name__ == '__main__' and not TestingThings:
     Path_To_Proc_Data = os.path.abspath('../Data') + '/'
     
     if Use_Test_Set:
-        RunNames = 'EPOSLHC_R_Test'
-        if "test" not in DatasetName.lower(): DatasetName += '_Test'
+        RunNames = 'Test'
     else:
         if Use_All_Sets:
             RunNames = ['EPOSLHC_R_Run010','EPOSLHC_R_Run030','EPOSLHC_R_Run080','EPOSLHC_R_Run090']
@@ -174,15 +166,18 @@ if __name__ == '__main__' and not TestingThings:
         from TrainingModule import Train , Tracker
 
         
-        from Model_Autoencoder import Loss as Loss_function
-        from Model_Autoencoder import validate, metric
+        
+        
+        from Model_Autoencoder_OnePix import Loss as Loss_function
+        from Model_Autoencoder_OnePix import validate, metric
 
-        from Model_Autoencoder import Model_Autoencoder_TimeFit, Model_Autoencoder_TimeFit_withGeometry
+        from Model_Autoencoder_OnePix import Model_OnePix_Linear, Model_OnePix_Linear_NoChii, Model_OnePix_Linear_NoTrace,Model_OnePix_Linear_NoTraceNoChii, Model_OnePix_Linear_NoChii_NormTrace
         
         
         Models = [
-            # Model_Autoencoder_TimeFit,
-            Model_Autoencoder_TimeFit_withGeometry,
+            # Model_OnePix_Linear_NoTrace,
+            # Model_OnePix_Linear_NoTraceNoChii,
+            Model_OnePix_Linear_NoChii_NormTrace
         ]
         
         if SelectNetwork is not None:
@@ -195,43 +190,32 @@ if __name__ == '__main__' and not TestingThings:
         # device = 'cpu'
         print(f'Using device: {device}')
 
+        # Model Parameters 
         Model_Parameters = {
-            'in_main_channels': (3,)  ,
-            'pixel_embedding_size': 32,
-            'latent_space_size'   : 32 if BottleNeckSize is None else BottleNeckSize,
-            'Train_Type'      : 'Profile', # Profile, Geometry or Both
-            'N_dense_nodes'   : 128   ,
-
-            'in_node_channels': 5     ,
-            'in_aux_channels' : 0     ,
-            'in_edge_channels': 2     ,
-            'N_kernels'       : 128   , 
-            'N_heads'         : 16    ,
-            'N_LSTM_nodes'    : 5     ,
-            'N_LSTM_layers'   : 3     ,
-            'kernel_size'     : 10    ,
+            'in_main_channels': (120,1),
+            'in_node_channels': 5   ,
+            'in_edge_channels': 2   ,
+            'in_aux_channels' : 0   ,
+            'N_kernels'       : 128  ,
+            'N_heads'         : 16  ,
+            'N_dense_nodes'   : 512  ,
+            'N_LSTM_nodes'    : 5  ,
+            'N_LSTM_layers'   : 3   ,
+            'kernel_size'     : 10  ,
             'conv2d_init_type': 'normal',
             'model_Dropout'   : 0.2 ,
-            'Debug_Mode'      : Debug_Mode
         }
-
+        
         Training_Parameters = {
             'LR': 0.0001,
-            'epochs': 150,
-            'BatchSize': 64,
+            'epochs': 15,
+            'BatchSize': 128,
             'accumulation_steps': 1,
             'epoch_done': 0,
             'batchBreak': 1e99,
             'ValLossIncreasePatience': 5,
-            'Optimiser': 'Adam',
-            'Debug_Mode': Debug_Mode
+            'Optimiser': 'Adam'
         }
-
-        if not Set_Custom_Seed: # Manually reset the seed, because some functions called torch.manual_seed before which changes it globaly
-            seed = int(time.time())
-            print(f'      Setting Random Seed to {seed}')
-            torch.manual_seed(seed)
-            torch.cuda.manual_seed_all(seed)
 
         for Model in Models:
             model = Model(**Model_Parameters).to(device)
@@ -275,17 +259,12 @@ if __name__ == '__main__' and not TestingThings:
 
             if plotSavePath != None : print(f'Plot Save Path: {plotSavePath}')
             else: print('Plots will not be saved')
-            if (LogPath != None) and not Debug_Mode: print(f'Log Path: {LogPath}')
+            if LogPath != None: print(f'Log Path: {LogPath}')
             else: print('Logs will not be saved')
-
-
-            if Debug_Mode: 
-                print(f'\n\n Begining training in Debug Mode \n\n')
 
             model,tracker = Train(model,Dataset,optimiser,scheduler,Loss_function,validate,metric ,Tracker,device = device,\
                                 plotOnEpochCompletionPath=plotSavePath,Training_Parameters=Training_Parameters,Model_Parameters=Model_Parameters,LogPath=LogPath)
             
-            if not Debug_Mode:
-                torch.save(model  ,SavePath+model.Name+'.pt')
-                torch.save(tracker,SavePath+model.Name+'_Tracker.pt')
+            torch.save(model  ,SavePath+model.Name+'.pt')
+            torch.save(tracker,SavePath+model.Name+'_Tracker.pt')
     

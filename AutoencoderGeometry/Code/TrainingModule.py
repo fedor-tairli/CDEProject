@@ -76,6 +76,13 @@ class Tracker():
             
         else:
             print(f'Epoch Loss: {Info["EpochLoss"]["Total"]:.4e} | Epoch Val Loss: {Info["EpochValLoss"]["Total"]:.4e}')
+
+        for key,val in Info['EpochValLoss'].items():
+            if val > 0.0001:
+                print(f'{key} Val Loss: {val:.4f} |',end='')
+            else:
+                print(f'{key} Val Loss: {val:.4e} |',end='')
+        print()
         
         for key,val,unit in zip(Info['EpochMetric'].keys(),Info['EpochMetric'].values(),Info['MetricUnits']):
             if unit == 'rad':
@@ -230,6 +237,7 @@ def Train(model,Dataset,optimiser,scheduler,Loss,Validation,Metric,Tracker,\
             batchBreak : Number of batches to break after
             ValLossIncreasePatience : Number of epochs to wait before aborting if the validation loss is increasing
             Optimiser : 'Adam' or 'SGD'
+            Debug_Mode : If True, will run the training in debug mode
           Model_Parameters : Dictionary Containing the Model Parameters (Model Dependent, this function only stores them in a log file)
 
 
@@ -240,11 +248,15 @@ def Train(model,Dataset,optimiser,scheduler,Loss,Validation,Metric,Tracker,\
     AutodetectAnomaly         = kwargs['AutodetectAnomaly']         if 'AutodetectAnomaly'         in kwargs else True
     device                    = kwargs['device']                    if 'device'                    in kwargs else 'cuda'
     LogPath                   = kwargs['LogPath']                   if 'LogPath'                   in kwargs else None
-
+    Debug_Mode                = Training_Parameters['Debug_Mode']   if 'Debug_Mode'   in Training_Parameters else False
     Epochs = Training_Parameters['epochs']
     Accumulation_steps = Training_Parameters['accumulation_steps']
     batchBreak = Training_Parameters['batchBreak']
-
+    if Debug_Mode:
+        print(f' Train Function is setting Batch Break and Epoch counter to 1 for Debug Mode, ignoring Training Parameters')
+        batchBreak = 1
+        Epochs     = 1
+        Dataset.BatchSize = 1
 
 
 
@@ -266,10 +278,14 @@ def Train(model,Dataset,optimiser,scheduler,Loss,Validation,Metric,Tracker,\
 
     # Training Loop for Ungraphed Data
     torch.autograd.set_detect_anomaly(AutodetectAnomaly)
+    
     for i in range(Epochs):
         print(f'Epoch {i+1}/{Epochs}') # Progress Bar
         Info = {'EpochLearningRate':[param_group['lr'] for param_group in optimiser.param_groups][0]} # Information required for the Tracker at this stage
-        Tracker.EpochStart(Info)
+        if Debug_Mode:
+            print(f'    Epoch info for Tracker: {Info}')
+        else:
+            Tracker.EpochStart(Info)
         
         model.train()
         batchN           = 0
@@ -291,30 +307,25 @@ def Train(model,Dataset,optimiser,scheduler,Loss,Validation,Metric,Tracker,\
                     optimiser.zero_grad()
                 
                 predictions = model(BatchMains,BatchAux)
-                losses = Loss(predictions,BatchTruth,keys=Dataset.Truth_Keys) # Loss will be a dictionary if multiple losses are used (At least one of the losses must be labeled 'Total')
-
+                losses = Loss(predictions,BatchTruth,keys=Dataset.Truth_Keys,Debug_Mode = Debug_Mode) # Loss will be a dictionary if multiple losses are used (At least one of the losses must be labeled 'Total')
+                if batchN % 1000 == 0:
+                    Loss(predictions,BatchTruth,keys=Dataset.Truth_Keys,Debug_Mode = True)
+                
                 losses['Total'].backward()
                 
                 for key in epoch_loss.keys():
                     epoch_loss[key] += losses[key].item()
                 
-                # Before optimiser.step()
-                # for name, param in model.named_parameters():
-                #     if param.requires_grad:
-                #         print(name, param.grad)
-
                 optimiser.step()
                                 
-                print(f'Batch {str(batchN).ljust(6)}/{len(Dataset)//Dataset.BatchSize} - Loss: {str(losses["Total"].item())[:6].ljust(6)}',end = '\r')
-                # if batchN % 100 == 0: print()
-                # if batchN == 10:
-                #     print('Early Exit for Testing')
-                #     break
+                if batchN % 100 == 0: print(f'Batch {str(batchN).ljust(6)}/{len(Dataset)//Dataset.BatchSize} - Loss: {str(losses["Total"].item())[:6].ljust(6)}',end = '\r')
+                if Debug_Mode: print(f' \n   Batch Losses for Tracker: {losses}')
                 batchN += 1
+                
                 if Tracker.AbortHuh():
                     print(f'Batch that broke: {batchN}')
                     break
-                # Do CUDA garbage collection
+                
                 torch.cuda.empty_cache()
 
             except KeyboardInterrupt:
@@ -345,20 +356,20 @@ def Train(model,Dataset,optimiser,scheduler,Loss,Validation,Metric,Tracker,\
         if Tracker.AbortHuh():
             print(f'Aborting Training from epoch break: {Tracker.Abort_Call_Reason}')
             break
-        # Epoch End will devide by number of batches
+        
+        # Epoch End will divide by number of batches
         for key in epoch_loss.keys():
             epoch_loss[key] = epoch_loss[key]/batchN
         
         # Validation and Early stopping # metric is a str to be printed
-        val_losses  = Validation(model,Dataset,Loss,device)
+        if Debug_Mode: print(f'\n    Calculating Validation Loss for Tracker')
+        val_losses  = Validation(model,Dataset,Loss,device,Debug_Mode = Debug_Mode)
         val_loss    = val_losses['Total'] # Needed for scheduler step below
-        # print('Calculating Val Metrics')
-        val_metrics = Metric(model,Dataset,device,keys=Dataset.Truth_Keys)
+        val_metrics = Metric(model,Dataset,device,keys=Dataset.Truth_Keys,Debug_Mode=Debug_Mode)
         
         if type(val_metrics) == dict and 'Units' in val_metrics:
             val_metric_units = val_metrics['Units']
-            val_metrics.pop('Units')
-            # print(f'Found Units from metric function: {val_metric_units}')
+            val_metrics.pop('Units')            
         else:
             val_metric_units = Dataset.Truth_Units
 
@@ -374,7 +385,12 @@ def Train(model,Dataset,optimiser,scheduler,Loss,Validation,Metric,Tracker,\
         Info = {'EpochLoss': epoch_loss, 'EpochValLoss':val_losses,'ModelState':model.state_dict(),\
                 'EpochMetric':val_metrics, 'MetricUnits':val_metric_units,
                 } # Information required for the Tracker at this stage
-        Tracker.EpochEnd(Info)
+        
+        if Debug_Mode:
+            print(f'    Epoch info for Tracker: \n {Info}')
+        else:
+            Tracker.EpochEnd(Info)
+
         
 
         if Tracker.AbortHuh():
