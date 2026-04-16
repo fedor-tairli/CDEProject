@@ -16,7 +16,7 @@ from typing import Union, Tuple # needed for the expected/default values of the 
 
 # Define the Loss Function
 
-def TimeFitEq_Toy(chi_i,chi_0,Rp,T0,FitType = 'Linear'):
+def TimeFitEq_Toy(chi_i,chi_0,Rp,T0,FitType = 'Tan'):
     if FitType == 'Tan':
         if type(chi_i) == torch.Tensor:
             assert type(chi_0) == torch.Tensor and type(Rp) == torch.Tensor and type(T0) == torch.Tensor, "All inputs must be of the same type"
@@ -76,7 +76,7 @@ def Loss(Pred,Truth,keys = ['Chi_0','Rp','T0'],ReturnTensor = True,Debug_Mode = 
 
         if Train_Type in ['Geometry','Both']:
             for i,key in enumerate(keys):
-                losses[key] = F.mse_loss(Geometry_Pred[:,i], Truth[:,i])
+                losses[key] = F.mse_loss(Geometry_Pred[:,i], Truth[:,i].to(device))
         else:
             for i,key in enumerate(keys):
                 losses[key] = torch.zeros(1).to(device)
@@ -195,7 +195,7 @@ class Model_Toy_Autoencoder_TimeFit(nn.Module):
     '''
     
 
-    def __init__(self, in_main_channels =(2,), pixel_embedding_size = 32, latent_space_size = 32,N_dense_nodes = 64,Train_Type = 'Profile',**kwargs):
+    def __init__(self, in_main_channels =(2,), pixel_embedding_size = 32, latent_space_size = 32,N_dense_nodes = 64,Train_Type = 'Both',**kwargs):
         super(Model_Toy_Autoencoder_TimeFit, self).__init__()
         
         self.Pix_Features = in_main_channels[0]
@@ -276,22 +276,25 @@ class Model_Toy_Autoencoder_TimeFit(nn.Module):
             recursive_output = self.recursive_latent_space_update(recursive_input) # (B, N_pix, latent_space_size)
             # Now pool this again to get the new latent space
             latent_space = self.attention_pool(recursive_output, Mask) # (B, latent_space_size)
-
             
-        
+            N_iter += 1
 
-        
 
         # Loss should take care of these debug prints
         if self.Train_Type in ['Profile','Both']:
             # Now make the preditions for the time profile
             # for each event generate 10 u coordinates between 0 and chi_0
             
-            Chi_0s = Aux[:,0].unsqueeze(1).to(device) # (B, 1) # Kinda cheating but its not a problem, cause i can resample the pixel space values instead and it will be good
+            # Chi_0s = Aux[:,0].unsqueeze(1).to(device) # (B, 1) # Kinda cheating but its not a problem, cause i can resample the pixel space values instead and it will be good
             
+            # test_chis = torch.linspace(0, 1, steps=10, device=device).unsqueeze(0).repeat(N_Events, 1) # (B, 10) # between 0 and 1
+            # test_chis = (test_chis * Chi_0s).unsqueeze(-1) # (B, 10) # between 0 and chi_0
+            
+            max_chis = torch.tensor([event['chi_i'].max() for event in Graph], device=device).unsqueeze(1) # (B, 1)
+            # More correct way of doing this where test values are between 0 and pi
             test_chis = torch.linspace(0, 1, steps=10, device=device).unsqueeze(0).repeat(N_Events, 1) # (B, 10) # between 0 and 1
-            test_chis = (test_chis * Chi_0s).unsqueeze(-1) # (B, 10) # between 0 and chi_0
-            
+            test_chis = (test_chis * max_chis).unsqueeze(-1) # (B, 10) # between 0 and chi_0
+
             latent_space_expanded = latent_space.unsqueeze(1).expand(-1, test_chis.shape[1], -1)
 
             time_profile_input = torch.cat([latent_space_expanded, test_chis], dim=-1) # (B, 10, latent_space_size + 1)
@@ -302,9 +305,10 @@ class Model_Toy_Autoencoder_TimeFit(nn.Module):
             
         else:
             time_profile = None
+            test_chis    = None
 
         if self.Train_Type in ['Geometry','Both']:
-            geometry = self.produce_geometry(latent_space)*self.Geometry_OutWeights # (B, 3)
+            geometry = self.produce_geometry(latent_space)*self.Geometry_OutWeights.to(device) # (B, 3)
         else:
             geometry = None
 
@@ -314,6 +318,7 @@ class Model_Toy_Autoencoder_TimeFit(nn.Module):
             'time_profile': time_profile, # (B, 10, 2)
             'test_chi_is' : test_chis,    # (B, 10, 1)
             'geometry'    : geometry    , # (B, 2)
+            'N_iter'      : N_iter
         }
     
         # I can regenerate the expected chi_is in loss, cause i know the chi_0s

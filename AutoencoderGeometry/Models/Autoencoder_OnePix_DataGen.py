@@ -177,20 +177,24 @@ def Graph_Autoencoder_TimeFit(Dataset, ProcessingDataset=None):
         pix_charge  = pix_charge[status_mask]
         pix_time    = pix_time[status_mask]
 
+        pix_min = torch.min(pix_time) if pix_time.numel() > 0 else torch.tensor(0.0)
+        pix_time = pix_time - pix_min # Normalise time to the first triggered pixel
+
 
         # Station Info
         station_chii   = event.get_value('Station_Chi_i')
-        station_Time   = event.get_value('Station_Time')
+        station_Time   = event.get_value('Station_Time') - pix_min # Normalise to the first triggered pixel
         station_signal = event.get_value('Station_TotalSignal')
         
         event_data = {
             'traces': pix_traces,
             'chi_is': pix_chiis,
             'charge': pix_charge,
-            'time': pix_time,
+            'time'  : pix_time,
             'station_chii': station_chii,
             'station_time': station_Time,
-            'station_signal': station_signal
+            'station_signal': station_signal,
+            'norm_min_time': pix_min
         }
         Sparse_Data.append(event_data)
 
@@ -207,6 +211,13 @@ def Graph_Autoencoder_TimeFit(Dataset, ProcessingDataset=None):
 
 
 def Return_as_is(Truth):
+    return Truth
+
+def Unnormalise_TimeFit_Geometry(Truth):
+    Truth[:,0] = torch.acos(Truth[:,0])
+    Truth[:,1] = Truth[:,1] * 50000 # 50 km
+    Truth[:,2] = Truth[:,2] * 1e5 # 1000 ns
+
     return Truth
 
 def Truth_Rec_Time_Fit(Dataset, ProcessingDataset=None):
@@ -232,13 +243,15 @@ def Truth_Rec_Time_Fit(Dataset, ProcessingDataset=None):
         Truth_Data[i] = torch.tensor([Gen_Chi0, Gen_Rp, Gen_T0])
         Rec_Data[i]   = torch.tensor([Rec_Chi0, Rec_Rp, Rec_T0])
 
-    # Normalization is not done, because predictions are made on pixel basis. 
+    Truth_Data[:,0] = torch.cos(Truth_Data[:,0]) # Normalise Chi0
+    Truth_Data[:,1] = Truth_Data[:,1] / 50000 # Normalise Rp to 50 km
+    Truth_Data[:,2] = Truth_Data[:,2] / 1e5 # Normalise T0 to 1000 ns
 
     if ProcessingDataset is None:
         return Truth_Data, Rec_Data
     ProcessingDataset._Truth = Truth_Data
     ProcessingDataset._Rec   = Rec_Data
-    ProcessingDataset.Unnormalise_Truth = Return_as_is
+    ProcessingDataset.Unnormalise_Truth = Unnormalise_TimeFit_Geometry
     ProcessingDataset.Truth_Keys = ['Chi_0', 'Rp', 'T0']
     ProcessingDataset.Truth_Units = ['rad','m','ns']
 

@@ -17,91 +17,90 @@ from typing import Union, Tuple # needed for the expected/default values of the 
 # Define the Loss Function
 
 # Old - BCE loss
-def Loss_Reg(Pred,Truth,keys = ['SDPTheta','SDPPhi'],ReturnTensor = True):
+
+def time_fit(chii,chi_0,Rp,T0):
+    in_tan  = (chi_0 - chii)/2
+    scale = Rp/(3e8)
+    time_profile = T0/1e9 + scale*torch.tan(in_tan)
+    return time_profile*1e7 # return in 100ns units - telescope bins
+
+def merge_parameters(PriorityParameters, SecondaryParameters):
+    return {**SecondaryParameters, **PriorityParameters} # This overwrites the Secondary if there is same Priority key
+
+
+def Loss(Pred,Truth, Loss_info,  **kwargs):
+    ''''
+    Will calculate the loss for the time profile and geometry predictions
     '''
-    Mean Squared Error Loss for Regression Values
-    Binary cross entropy loss for all predicted values. 
-    Assumes that the predicted values are in [0,1] range (Sigmoid Activation)
-    Function automatically accounts for augmentations and scales in the model's forward augmentation
-    '''
-    # First, we expect pred to be a list of [predicted classes, RecValues]
-    assert isinstance(Pred,list) or isinstance(Pred, tuple) or isinstance(Pred, dict), 'Predictions should be a list of [PredictedClasses, RecValues]'
-    assert len(Pred) == 3, 'Predictions should be a list of [PredictedClasses, Augmented RecValues, Regression RecValues]'
+    Loss_info = merge_parameters(Loss_info, kwargs) 
+    # ---- Parse Kwargs ----
+    keys         = Loss_info.get('keys'         , ['Chi_0','Rp','T0'])
+    ReturnTensor = Loss_info.get('ReturnTensor' , True  ) 
+    Debug_Mode   = Loss_info.get('Debug_Mode'   , False )
 
-    Pred_Classes = Pred[0]
-    RecValues    = Pred[1] # Augmented RecValues
-    Reg_Values   = Pred[2] # Regression RecValues
+    # ---- Parse the predictions ----
+    if type(Pred) == dict:
+        Time_Profile_Pred = Pred['time_profile']
+        Geometry_Pred     = Pred['geometry']
+        Test_Chi_is       = Pred['test_chi_is'].squeeze(-1) # (B, 10)
+        Acc_Loss          = Pred.get('Acc_Loss', torch.tensor(0.0)) # This is the accumulated loss of the time profile reconstruction during the recursive latent space update, it can be used for analysis and maybe for making decisions on iteration exit in future versions
+        Time_Norm         = Pred.get('Time_Norm', torch.zeros(len(Truth))) # This is the normalization factor for the time values
+    else:
+        raise ValueError('Predictions should be a dictionary with keys time_profile and geometry')
     
-    Train_Style = 'Both'
+    # ---- Loss Parameters ---- 
+    T_G_Loss_ratio  = Loss_info.get('T_G_Loss_ratio' , torch.tensor(1.0  ) ) # geom vs profile loss ratio # For now i will disregard geometry in the final loss
+    T_Loss_scale    = Loss_info.get('T_Loss_scale'   , torch.tensor(1e-4 ) ) # Normalisation item
+    Rec_Loss_Weight = Loss_info.get('Rec_Loss_Weight', torch.tensor(3.0  ) ) # weight of this loss wrt the acc loss in iteration
+    # print(f'    Loss Function - T_G_Loss_ratio: {T_G_Loss_ratio}, T_Loss_scale: {T_Loss_scale}, Rec_Loss_Weight: {Rec_Loss_Weight}')
     
-    if Pred_Classes is None:   Train_Style = 'Regression'
-    if Reg_Values   is None:   Train_Style = 'Classification'
-    
-    # Making Sure Devices are the same
-    Device = Pred_Classes.device if Train_Style != 'Regression' else Reg_Values.device
-    if Train_Style in ['Classification','Both']:
-        Pred_Classes = Pred_Classes.to(Device)
-        RecValues    = RecValues   .to(Device)
-    if Train_Style in ['Regression','Both']:
-        Reg_Values   = Reg_Values  .to(Device)
-
-    Truth     = Truth    .to(Device)
-    
-    
-    # figure out the augmentation scale
-    if Train_Style in ['Classification','Both']:
-        assert RecValues.shape[0] % Truth.shape[0] == 0, f'Prediction and Truth sizes are not compatible, cannot determine augmentation scale {RecValues.shape[0]} vs {Truth.shape[0]}'
-
-        Augmentation_Scale = RecValues.shape[0] // Truth.shape[0]
-        Truth_RecValues    = Truth.repeat_interleave(Augmentation_Scale,dim = 0)
-        Truth_Classes = (torch.abs(RecValues - Truth_RecValues) < 2.1*torch.pi/180).float() # within 1/3.5 degrees which is slightly larger than the augmentation step of 1/4 degree
-        
-        # Now, calculate the weights for each guess
-        Augmentation_magnitude = torch.abs(RecValues - Truth_RecValues)
-        
-        weights = torch.ones_like(Truth_Classes)
-        label_T = Truth_Classes == 1
-        label_F = Truth_Classes == 0 
-        weights[label_T] = Augmentation_Scale/torch.sum(label_T).float() # Will give equal KINDA weight to pos/neg samples
-        weights[label_F] = Augmentation_magnitude[label_F]* 5 * Pred_Classes[label_F]
-        weights = weights.detach()
-        
-
-        
-        
-        
-    
-    if Train_Style in ['Regression','Both']:
-        Truth_Theta_Sin = torch.sin(Truth[:,0]).unsqueeze(1)
-        Truth_Theta_Cos = torch.cos(Truth[:,0]).unsqueeze(1)
-        Truth_Phi_Sin   = torch.sin(Truth[:,1]).unsqueeze(1)
-        Truth_Phi_Cos   = torch.cos(Truth[:,1]).unsqueeze(1)
-
-        Truth = torch.cat([Truth_Theta_Sin,Truth_Theta_Cos,Truth_Phi_Sin,Truth_Phi_Cos],dim=1)
+    Train_Type = 'Both'
+    if Time_Profile_Pred is None: Train_Type = 'Geometry'
+    if Geometry_Pred     is None: Train_Type = 'Profile'
 
     
     losses = {}
-    for i,key in enumerate(keys):
-        if Train_Style in ['Regression','Both']:
-            if 'SDPTheta' in key:
-                losses[key+'_Reg'] = F.mse_loss(Reg_Values[:,0:2],Truth[:,0:2])
-            elif 'SDPPhi' in key:
-                losses[key+'_Reg'] = F.mse_loss(Reg_Values[:,2:4],Truth[:,2:4])
+    
+    device = Time_Profile_Pred.device if Time_Profile_Pred is not None else Geometry_Pred.device
+
+    if Train_Type in ['Profile','Both']:
+        
+        Chi_0s = Truth[:,0].unsqueeze(1).to(device)
+        Rps    = Truth[:,1].unsqueeze(1).to(device)
+        T0s    = Truth[:,2].unsqueeze(1).to(device)
+
+        Time_Profile_Truth = time_fit(Test_Chi_is, Chi_0s, Rps, T0s) # (B, 10)
+        Time_Profile_Truth = Time_Profile_Truth - Time_Norm.unsqueeze(1) # Min Time is subtracted from pixels - So do it here too
+
+        # losses['Profile_chii'] = F.mse_loss(Time_Profile_Pred[:,:,0], Test_Chi_is)
+        
+        losses['Profile_time_Acc'] = Acc_Loss.to(device)
+        losses['Profile_time_Rec'] = F.mse_loss(Time_Profile_Pred[:,:,0], Time_Profile_Truth)*Rec_Loss_Weight.to(device)
+        losses['Profile_time']     = losses['Profile_time_Acc'] + losses['Profile_time_Rec'] 
+
+    else:
+        # losses['Profile_chii'] = torch.zeros(1).to(device)
+        losses['Profile_time'] = torch.zeros(1).to(device)
+
+
+    
+
+
+
+    if Train_Type in ['Geometry','Both']:
+        for i,key in enumerate(keys):
+            if key == 'T0':
+                losses[key] = F.mse_loss(Geometry_Pred[:,i]+ Time_Norm *1e9/1e7, Truth[:,i].to(device)) # Pixel Time Shift in units of ns 
             else:
-                raise ValueError(f'Key {key} not recognized for Regression Loss')
-        else:
-            losses[key+'_Reg'] = torch.zeros(1).to(Device)
-        
-        if Train_Style in ['Classification','Both']:
-            losses[key+'_Cls'] = F.binary_cross_entropy(Pred_Classes[:,i],Truth_Classes[:,i],weight=weights[:,i])
-        else:
-            losses[key+'_Cls'] = torch.zeros(1).to(Device)
+                losses[key] = F.mse_loss(Geometry_Pred[:,i], Truth[:,i].to(device))
+    else:
+        for i,key in enumerate(keys):
+            losses[key] = torch.zeros(1).to(device)
 
-        
-        losses[key] = losses[key+'_Reg'] + losses[key+'_Cls']
-        
 
-    losses['Total'] = sum([losses[key] for key in keys])
+
+    losses['Total'] = T_G_Loss_ratio*T_Loss_scale*losses['Profile_time'] + (torch.tensor(1.0)-T_G_Loss_ratio)*sum(losses[key] for key in keys)
+
     if ReturnTensor: return losses
     else:
         losses = {key:loss.item() for key,loss in losses.items()}
@@ -109,265 +108,7 @@ def Loss_Reg(Pred,Truth,keys = ['SDPTheta','SDPPhi'],ReturnTensor = True):
 
 
 
-def validate_Reg(model,Dataset,Loss,device,BatchSize = 64):
-    '''
-    Takes model, Dataset, Loss Function, device, keys
-    Dataset is defined as ProcessingDatasetContainer in the Dataset2.py
-    keys are to be used in the loss function
-    BatchSize to change in case it doesnt fit into memory
-    
-    Custom validate function to be used for the NLRE model
-    NLRE returns a list of [PredictedClasses, RecValues]
-    using Augmentation Scale of 2 during validation
-    '''
-    # make sure the Dataset State is Val
-    Dataset.State = 'Val'
-    model.eval()
-    
-    Dataset.BatchSize = Dataset.BatchSize*(BatchSize//8)
-
-    Preds   = []
-    RecVals = []
-    RegVals = []
-    Truths  = []
-    
-    TrainType = None
-
-    with torch.no_grad():
-        for i,(_, BatchMains, BatchAux, BatchTruth,_)  in enumerate(Dataset):
-            Model_out = model(BatchMains,BatchAux,Augmentation_Scale=2)
-            if i == 0:
-                if   Model_out[2] is None: TrainType = 'Classification'
-                elif Model_out[0] is None: TrainType = 'Regression'
-                else:                      TrainType = 'Both'
-            
-            if TrainType in ['Classification','Both']:
-                Preds  .append(Model_out[0].to('cpu'))
-                RecVals.append(Model_out[1].to('cpu'))
-            
-            if TrainType in ['Regression','Both']:
-                RegVals.append(Model_out[2].to('cpu'))
-            
-            Truths .append(BatchTruth  .to('cpu'))
-        
-        if TrainType in ['Classification','Both']:
-            Preds   = torch.cat(Preds  ,dim=0)
-            RecVals = torch.cat(RecVals,dim=0)
-        else:
-            Preds   = None
-            RecVals = None
-        
-        if TrainType in ['Regression','Both']:
-            RegVals = torch.cat(RegVals,dim=0)
-        else:
-            RegVals = None
-
-        Truths  = torch.cat(Truths ,dim=0)
-
-    # Return Batch Size to old value
-    Dataset.BatchSize = Dataset.BatchSize//(BatchSize//8)
-
-    return Loss([Preds,RecVals,RegVals],Truths,keys=Dataset.Truth_Keys,ReturnTensor=False)
-
-
-def metric_Reg(model,Dataset,device,keys=['SDPTheta','SDPPhi'],BatchSize = 64,metric_style = 'Accuracy'):
-    '''
-    Takes model, Dataset,device, keys
-    Dataset is defined as ProcessingDatasetContainer in the Dataset2.py
-    BatchSize to change in case it doesnt fit into memory
-    Returns accuracy or other metric
-    '''
-    # make sure the Dataset State is Val
-    Dataset.State = 'Val'
-    model.eval()
-    
-    Dataset.BatchSize = Dataset.BatchSize*(BatchSize//8)
-    Preds   = []
-    RecVals = []
-    RegVals = []
-    Truths  = []
-    TrainType = None
-
-    with torch.no_grad():
-        for i,(_, BatchMains, BatchAux, BatchTruth, _) in enumerate(Dataset):
-            Model_out = model(BatchMains,BatchAux)
-            if i == 0: # Can check what sort of model we are training
-                if   Model_out[2] is None: TrainType = 'Classification'
-                elif Model_out[0] is None: TrainType = 'Regression'
-                else:                      TrainType = 'Both'
-
-            if TrainType in ['Classification','Both']:
-                Preds  .append(Model_out[0].to('cpu'))
-                RecVals.append(Model_out[1].to('cpu'))
-                
-            if TrainType in ['Regression','Both']:
-                RegVals.append(Model_out[2].to('cpu'))
-            
-            Truths .append(BatchTruth  .to('cpu'))
-
-    Truths  = torch.cat(Truths ,dim=0)
-    RegTruths = Truths.clone()
-
-    if TrainType in ['Classification','Both']:
-        Preds   = torch.cat(Preds  ,dim=0)
-        RecVals = torch.cat(RecVals,dim=0)
-        # Augmentation scale
-        Augmentation_Scale = RecVals.shape[0] // Truths.shape[0]
-        Truths = Truths.repeat_interleave(Augmentation_Scale,dim = 0)
-
-        Truth_labels = (RecVals == Truths).float()
-        Pred_labels = (Preds >= 0.5).float()
-
-    if TrainType in ['Regression','Both']:
-        RegVals = torch.cat(RegVals,dim=0)
-        RegVals_Theta = torch.atan2(RegVals[:,0],RegVals[:,1]).unsqueeze(1)
-        RegVals_Phi   = torch.atan2(RegVals[:,2],RegVals[:,3]).unsqueeze(1)
-        RegVals = torch.cat([RegVals_Theta,RegVals_Phi],dim=1)
-
-    metrics = {'Units':[]}
-    
-    for i,key in enumerate(keys):
-        if TrainType in ['Classification','Both']:
-            if metric_style == 'Accuracy':
-                correct = (Truth_labels[:,i] == Pred_labels[:,i]).float()
-                accuracy = correct.sum() / len(correct)
-                metrics[key] = accuracy.item()*100
-                metrics['Units'].append('%')
-            else:
-                raise NotImplementedError(f'Metric Style {metric_style} not implemented')
-        if TrainType in ['Regression','Both']:
-            AngDiv = torch.atan2(torch.sin(RegVals[:,i]-RegTruths[:,i]),torch.cos(RegVals[:,i]-RegTruths[:,i]))
-            metrics[key+'AngDiv'] = torch.quantile(torch.abs(AngDiv),0.68)
-            metrics['Units'].append('rad')
-
-    # Return Batch Size to old value
-    Dataset.BatchSize = Dataset.BatchSize//(BatchSize//8)
-    return metrics
-
-
-def time_fit(chii,chi_0,Rp,T0):
-    in_tan  = (chi_0 - chii)/2
-    scale = Rp/(3e8)
-    time_profile = T0/1e9 + scale*torch.tan(in_tan)
-    return time_profile*1e7 # return in 100ns units - telescope bins
-    
-
-def Loss(Pred,Truth,keys = ['Chi_0','Rp','T0'],ReturnTensor = True,Debug_Mode = False, **kwargs):
-    ''''
-    Will calculate the loss for the time profile and geometry predictions
-    '''
-
-    if type(Pred) == dict:
-        Time_Profile_Pred = Pred['time_profile']
-        Geometry_Pred     = Pred['geometry']
-    else:
-        raise ValueError('Predictions should be a dictionary with keys time_profile and geometry')
-
-    Train_Type = 'Both'
-    if Time_Profile_Pred is None: Train_Type = 'Geometry'
-    if Geometry_Pred     is None: Train_Type = 'Profile'
-
-    if not Debug_Mode:
-        losses = {}
-        
-        device = Time_Profile_Pred.device if Time_Profile_Pred is not None else Geometry_Pred.device
-
-        if Train_Type in ['Profile','Both']:
-            
-            Chi_0s = Truth[:,0].unsqueeze(1).to(device)
-            Rps    = Truth[:,1].unsqueeze(1).to(device)
-            T0s    = Truth[:,2].unsqueeze(1).to(device)
-
-            test_chis = torch.linspace(0, 1, steps=10, device=device).unsqueeze(0).repeat(len(Time_Profile_Pred), 1) # (B, 10) # between 0 and 1
-            test_chis = (test_chis * Chi_0s) # (B, 10) # between 0 and chi_0
-            
-            Time_Profile_Truth = time_fit(test_chis, Chi_0s, Rps, T0s) # (B, 10)
-
-            losses['Profile_chii'] = F.mse_loss(Time_Profile_Pred[:,:,0], test_chis)
-            losses['Profile_time'] = F.mse_loss(Time_Profile_Pred[:,:,1], Time_Profile_Truth)
-            
-        else:
-            losses['Profile_chii'] = torch.zeros(1).to(device)
-            losses['Profile_time'] = torch.zeros(1).to(device)
-
-        if Train_Type in ['Geometry','Both']:
-            for i,key in enumerate(keys):
-                losses[key] = F.mse_loss(Geometry_Pred[:,i], Truth[:,i])
-        else:
-            for i,key in enumerate(keys):
-                losses[key] = torch.zeros(1).to(device)
-
-        losses['Total'] = sum(losses.values())
-
-        if ReturnTensor: return losses
-        else:
-            losses = {key:loss.item() for key,loss in losses.items()}
-            return losses
-        
-
-    elif Debug_Mode: 
-        print('################ CALCULATING LOSS ################')
-        print(f'    Found Train Type: {Train_Type}')
-        losses = {}
-        
-        device = Time_Profile_Pred.device if Time_Profile_Pred is not None else Geometry_Pred.device
-
-        if Train_Type in ['Profile','Both']:
-            
-            Chi_0s = Truth[:,0].unsqueeze(1).to(device)
-            Rps    = Truth[:,1].unsqueeze(1).to(device)
-            T0s    = Truth[:,2].unsqueeze(1).to(device)
-
-            test_chis = torch.linspace(0, 1, steps=10, device=device).unsqueeze(0).repeat(len(Time_Profile_Pred), 1) # (B, 10) # between 0 and 1
-            test_chis = (test_chis * Chi_0s) # (B, 10) # between 0 and chi_0
-                
-            print(f' shape of all values in the time fit calculation')
-            Time_Profile_Truth = time_fit(test_chis, Chi_0s, Rps, T0s) # (B, 10)
-            losses['Profile_chii'] = F.mse_loss(Time_Profile_Pred[:,:,0], test_chis)
-            losses['Profile_time'] = F.mse_loss(Time_Profile_Pred[:,:,1], Time_Profile_Truth)
-
-            
-        
-            print(f' Profile Calculation, Found the following inputs in event 0')
-            print(f'    Chi_0s: {Chi_0s[0]}')
-            print(f'    Rps: {Rps[0]}')
-            print(f'    T0s: {T0s[0]}')
-
-            print(f'    test_chis               : {test_chis[0]}')
-            print(f'    Time_Profile_Pred[0,:,0]: {Time_Profile_Pred[0,:,0]}')
-            print(f'    Time_Profile_Truth      : {Time_Profile_Truth[0]}')
-            print(f'    Time_Profile_Pred[0,:,1]: {Time_Profile_Pred[0,:,1]}')
-            print(f'    Chii Profile MSE Loss: {losses["Profile_chii"].item()}')
-            print(f'    Time Profile MSE Loss: {losses["Profile_time"].item()}')
-
-
-
-        else:
-            losses['Profile_chii'] = torch.zeros(1).to(device)
-            losses['Profile_time'] = torch.zeros(1).to(device)
-
-        if Train_Type in ['Geometry','Both']:
-            for i,key in enumerate(keys):
-                losses[key] = F.mse_loss(Geometry_Pred[:,i], Truth[:,i])
-                print(f' Geometry Calculation for {key}, Found the following inputs')
-                print(f'    Geometry_Pred[:,{i}]: {Geometry_Pred[:,i]}')
-                print(f'    Truth[:,{i}]: {Truth[:,i]}')
-                print(f'    MSE Loss for {key}: {losses[key].item()}')
-
-
-        else:
-            for i,key in enumerate(keys):
-                losses[key] = torch.zeros(1).to(device)
-
-        losses['Total'] = sum(losses.values())
-
-        if ReturnTensor: return losses
-        else:
-            losses = {key:loss.item() for key,loss in losses.items()}
-            return losses
-
-
-def validate(model,Dataset,Loss,device,BatchSize = 512, Debug_Mode = False, **kwargs):
+def validate(model,Dataset,Loss, Loss_info, **kwargs):
     '''
     Takes model, Dataset, Loss Function, device, keys
     Dataset is defined as ProcessingDatasetContainer in the Dataset2.py
@@ -375,19 +116,25 @@ def validate(model,Dataset,Loss,device,BatchSize = 512, Debug_Mode = False, **kw
     BatchSize to change in case it doesnt fit into memory
     Returns the average loss
     '''
-    # make sure the Dataset State is Val
+    Loss_info = merge_parameters(Loss_info, kwargs)
+    Debug_Mode = Loss_info.get('Debug_Mode', False)
+
     if Debug_Mode: print('################ VALIDATION ################')
 
+    # make sure the Dataset State is Val
     Dataset.State = 'Val'
     model.eval()
     TrainingBatchSize = Dataset.BatchSize
-    Dataset.BatchSize = 1 if Debug_Mode else BatchSize
+    # Dataset.BatchSize = 1 if Debug_Mode else BatchSize  # CARE THIS THING AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
     
     Train_Type = None
 
-    Profile_preds   =[]
+    Profile_preds  = []
+    Test_Chi_is    = []
     Geometry_preds = []
     Truths         = []
+    Acc_Losses     = [] # Not interested in this for the validation, but doing anyway, just in case
+    Time_Norms     = [] # very important 
     
     with torch.no_grad():
         for i,(_, BatchMains, BatchAux, BatchTruth, _)  in enumerate(Dataset):
@@ -399,30 +146,54 @@ def validate(model,Dataset,Loss,device,BatchSize = 512, Debug_Mode = False, **kw
 
             if Train_Type in ['Profile','Both']:
                 Profile_preds.append(Model_out['time_profile'].to('cpu'))
-            
+                Test_Chi_is  .append(Model_out['test_chi_is' ].to('cpu'))
+                Acc_Losses   .append(Model_out.get('Acc_Loss', torch.zeros(BatchTruth.shape[0])).to('cpu'))
+
             if Train_Type in ['Geometry','Both']:
                 Geometry_preds.append(Model_out['geometry'].to('cpu'))
             
+            Time_Norms.append(Model_out.get('Time_Norm', torch.zeros(BatchTruth.shape[0])).to('cpu'))
             Truths.append(BatchTruth.to('cpu'))
+
             if Debug_Mode: break
+
+        
+        
         if Train_Type in ['Profile','Both']:
             Profile_preds = torch.cat(Profile_preds,dim=0)
+            Test_Chi_is   = torch.cat(Test_Chi_is  ,dim=0)
+            Acc_Losses    = torch.mean(torch.stack(Acc_Losses)) # Average Accumulated Loss across the validation set
         else:
             Profile_preds = None
+        
+        
         if Train_Type in ['Geometry','Both']:
             Geometry_preds = torch.cat(Geometry_preds,dim=0)
         else:
             Geometry_preds = None
 
-        Truths = torch.cat(Truths,dim=0)
+        Time_Norms = torch.cat(Time_Norms,dim=0)
+        Truths     = torch.cat(Truths    ,dim=0)
 
     # Return Batch Size to old value
     Dataset.BatchSize = TrainingBatchSize
-    return Loss({'time_profile': Profile_preds, 'geometry': Geometry_preds}, Truths, keys=Dataset.Truth_Keys, ReturnTensor=False)
+    Loss_inp_dict = {
+        'time_profile': Profile_preds,
+        'geometry'    : Geometry_preds,
+        'test_chi_is' : Test_Chi_is,
+        'Acc_Loss'    : Acc_Losses,
+        'Time_Norms'  : Time_Norms
+    }
+    return Loss(Loss_inp_dict, Truths, Loss_info)
 
 
-def metric(model,Dataset,device,keys = ['Chi_0','Rp','T0'],BatchSize = 512,Debug_Mode = False, **kwargs):
+def metric(model,Dataset,Loss_info, **kwargs):
+
     ''' For now i am not sure what to do'''
+    Loss_info = merge_parameters(Loss_info, kwargs)
+    keys       = Loss_info.get('keys', ['Chi_0','Rp','T0'])
+    Debug_Mode = Loss_info.get('Debug_Mode', False)
+    
     if Debug_Mode: print('Calculating Metrics..., no debug mode -  running normally')
     metrics = {}
     metrics['Units'] = ['s','rad','m','ns']
@@ -466,14 +237,15 @@ class Model_Autoencoder_TimeFit(nn.Module):
     '''
     
 
-    def __init__(self, in_main_channels =(3,), pixel_embedding_size = 32, latent_space_size = 32,N_dense_nodes = 64,Train_Type = 'Profile',**kwargs):
+    def __init__(self, in_main_channels =(2,), pixel_embedding_size = 32, latent_space_size = 32,N_dense_nodes = 64,Train_Type = 'Both',**kwargs):
         super(Model_Autoencoder_TimeFit, self).__init__()
         
         self.Pix_Features = in_main_channels[0]
         self.kwargs = kwargs
         self.Train_Type = Train_Type
         self.Debug_Mode = kwargs.get('Debug_Mode', False)
-
+        self.max_latent_iterations = kwargs.get('max_latent_iterations', 10)
+        self.latent_space_change_scale = kwargs.get('latent_space_change_scale', 0.01)
         if self.Debug_Mode: 
             print(f'    Model initialized with Train Type: {self.Train_Type} and Debug Mode: {self.Debug_Mode}')
             print(f'    Trimming down the model sizes')
@@ -492,6 +264,7 @@ class Model_Autoencoder_TimeFit(nn.Module):
         self.attention_pool = AttentionPooling(pixel_embedding_size)
 
         self.construct_latent_space = nn.Linear(pixel_embedding_size, latent_space_size)
+        self.recursive_latent_space_update = nn.Linear(latent_space_size+pixel_embedding_size, latent_space_size)
 
         self.produce_time_profile = nn.Sequential(
             nn.Linear(latent_space_size + 1, N_dense_nodes), # +1 for the u coordinate
@@ -509,10 +282,11 @@ class Model_Autoencoder_TimeFit(nn.Module):
             nn.Linear(N_dense_nodes, 3) # predict Chi_0* and log_Rp and T0
         )
 
-        self.Geometry_OutWeights = torch.tensor([1,1,1])
+        self.Geometry_OutWeights = torch.tensor([1.0,1.0,1.0])
             
     def forward(self,Graph,Aux):
         if self.Debug_Mode and self.training:
+            raise NotImplementedError('Debug Mode is not implemented')
             return self.debug_forward(Graph,Aux)
         else:
             return self.clean_forward(Graph,Aux)
@@ -528,23 +302,42 @@ class Model_Autoencoder_TimeFit(nn.Module):
         
         Pix_Data = torch.zeros([N_Events, N_pix_in_event.max()+1, self.Pix_Features], device=device) # +1 for station data
         for i,event in enumerate(Graph):
-            Pix_Data[i,1:N_pix_in_event[i]+1,:] = torch.stack([event['chi_is'], event['time'], event['charge']], dim=-1).to(device)
-            Pix_Data[i,0                    ,:] = torch.tensor([event['station_chii'], event['station_time'], event['station_signal']], device=device) 
+            Pix_Data[i,1:N_pix_in_event[i]+1,:] = torch.stack([event['chi_is'], event['time']], dim=-1).to(device)
+            Pix_Data[i,0                    ,:] = torch.tensor([event['station_chii'], event['station_time']], device=device) 
 
-        pix_embedding =  self.pix_process(Pix_Data) # (B, N_pix, pixel_embedding_size)
+        pix_embedding = self.pix_process(Pix_Data) # (B, N_pix, pixel_embedding_size)
         latent_space  = self.attention_pool(pix_embedding, Mask) # (B, latent_space_size)
         latent_space  = self.construct_latent_space(latent_space) # (B, latent_space_size)
+
+        old_latent_space = torch.zeros_like(latent_space)
+        N_iter = 0
+        while (latent_space - old_latent_space).sum() > latent_space.sum()*self.latent_space_change_scale and N_iter < self.max_latent_iterations:
+            old_latent_space = latent_space
+            # For each pixel, concatenate the latent space to the pixel embedding and process it
+            latent_space_expanded = latent_space.unsqueeze(1).expand(-1, pix_embedding.shape[1], -1)
+            recursive_input = torch.cat([pix_embedding, latent_space_expanded], dim=-1) # (B, N_pix, pixel_embedding_size + latent_space_size)
+            recursive_output = self.recursive_latent_space_update(recursive_input) # (B, N_pix, latent_space_size)
+            # Now pool this again to get the new latent space
+            latent_space = self.attention_pool(recursive_output, Mask) # (B, latent_space_size)
+            
+            N_iter += 1
+
 
         # Loss should take care of these debug prints
         if self.Train_Type in ['Profile','Both']:
             # Now make the preditions for the time profile
             # for each event generate 10 u coordinates between 0 and chi_0
             
-            Chi_0s = Aux[:,4].unsqueeze(1).to(device) # (B, 1) # Kinda cheating but its not a problem, cause i can resample the pixel space values instead and it will be good
+            # Chi_0s = Aux[:,0].unsqueeze(1).to(device) # (B, 1) # Kinda cheating but its not a problem, cause i can resample the pixel space values instead and it will be good
             
+            # test_chis = torch.linspace(0, 1, steps=10, device=device).unsqueeze(0).repeat(N_Events, 1) # (B, 10) # between 0 and 1
+            # test_chis = (test_chis * Chi_0s).unsqueeze(-1) # (B, 10) # between 0 and chi_0
+            
+            max_chis = torch.tensor([event['chi_is'].max() if event['chi_is'].numel() > 0 else 0 for event in Graph], device=device).unsqueeze(1) # (B, 1)
+            # More correct way of doing this where test values are between 0 and pi
             test_chis = torch.linspace(0, 1, steps=10, device=device).unsqueeze(0).repeat(N_Events, 1) # (B, 10) # between 0 and 1
-            test_chis = (test_chis * Chi_0s).unsqueeze(-1) # (B, 10) # between 0 and chi_0
-            
+            test_chis = (test_chis * max_chis).unsqueeze(-1) # (B, 10) # between 0 and chi_0
+
             latent_space_expanded = latent_space.unsqueeze(1).expand(-1, test_chis.shape[1], -1)
 
             time_profile_input = torch.cat([latent_space_expanded, test_chis], dim=-1) # (B, 10, latent_space_size + 1)
@@ -555,9 +348,10 @@ class Model_Autoencoder_TimeFit(nn.Module):
             
         else:
             time_profile = None
+            test_chis    = None
 
         if self.Train_Type in ['Geometry','Both']:
-            geometry = self.produce_geometry(latent_space)*self.Geometry_OutWeights # (B, 3)
+            geometry = self.produce_geometry(latent_space)*self.Geometry_OutWeights.to(device) # (B, 3)
         else:
             geometry = None
 
@@ -565,98 +359,9 @@ class Model_Autoencoder_TimeFit(nn.Module):
 
         return {
             'time_profile': time_profile, # (B, 10, 2)
+            'test_chi_is' : test_chis,    # (B, 10, 1)
             'geometry'    : geometry    , # (B, 2)
-        }
-    
-        # I can regenerate the expected chi_is in loss, cause i know the chi_0s
-        # For now this is just for continuity, i will start with only training the latent space construction 
-
-    def debug_forward(self,Graph,Aux):
-
-        device = self.pix_process[0].weight.device
-
-        N_Events = len(Graph)
-        N_pix_in_event = torch.tensor(list(map(len,map(lambda x: x['chi_is'],Graph))),device=device).int()
-        # I think this produces the exact thing i need
-        Mask = torch.arange(N_pix_in_event.max()+1,device=device).unsqueeze(0) < (N_pix_in_event+1).unsqueeze(1) # (B, N_pix)
-
-        if self.Debug_Mode and self.training:
-            print(f'    Forward Pass, Found the following inputs')
-            print(f'    N_Events: {N_Events}')
-            print(f'    N_pix_in_event: {N_pix_in_event}')        
-            print(f'    Mask: {Mask}')        
-
-        Pix_Data = torch.zeros([N_Events, N_pix_in_event.max()+1, self.Pix_Features], device=device) # +1 for station data
-        for i,event in enumerate(Graph):
-            Pix_Data[i,1:N_pix_in_event[i]+1,:] = torch.stack([event['chi_is'], event['time'], event['charge']], dim=-1).to(device)
-            Pix_Data[i,0                    ,:] = torch.tensor([event['station_chii'], event['station_time'], event['station_signal']], device=device) 
-
-        
-        if self.Debug_Mode and self.training:
-            print(f'    Pix_Data: {Pix_Data}')
-            pix_embedding =  self.pix_process(Pix_Data) # (B, N_pix, pixel_embedding_size)
-            print(f'    pix_embedding: {pix_embedding}')
-            latent_space  = self.attention_pool(pix_embedding, Mask) # (B, latent_space_size)
-            print(f'    latent_space after attention pool: {latent_space}')
-            latent_space  = self.construct_latent_space(latent_space) # (B, latent_space_size)
-            print(f'    latent_space after construction: {latent_space}')
-
-        else:
-            pix_embedding =  self.pix_process(Pix_Data) # (B, N_pix, pixel_embedding_size)
-            latent_space  = self.attention_pool(pix_embedding, Mask) # (B, latent_space_size)
-            latent_space  = self.construct_latent_space(latent_space) # (B, latent_space_size)
-
-        # Loss should take care of these debug prints
-        if self.Train_Type in ['Profile','Both']:
-            # Now make the preditions for the time profile
-            # for each event generate 10 u coordinates between 0 and chi_0
-            if self.Debug_Mode and self.training:
-                print(f'    Generating Time Profile Predictions, Found the following inputs')
-                Chi_0s = Aux[:,4].unsqueeze(1).to(device) # (B, 1) # Kinda cheating but its not a problem, cause i can resample the pixel space values instead and it will be good
-                print(f'    Chi_0s: {Chi_0s}')
-                test_chis = torch.linspace(0, 1, steps=10, device=device).unsqueeze(0).repeat(N_Events, 1) # (B, 10) # between 0 and 1
-                print(f'    test_chis before scaling: {test_chis}')
-                test_chis = (test_chis * Chi_0s).unsqueeze(-1) # (B, 10) # between 0 and chi_0
-                print(f'    test_chis after scaling: {test_chis}')
-                
-                latent_space_expanded = latent_space.unsqueeze(1).expand(-1, test_chis.shape[1], -1)
-                print(f'    latent_space_expanded: {latent_space_expanded}')
-
-                time_profile_input = torch.cat([latent_space_expanded, test_chis], dim=-1) # (B, 10, latent_space_size + 1)
-                print(f'    time_profile_input: {time_profile_input}')
-                B,S,D = time_profile_input.shape
-                
-                time_profile = self.produce_time_profile(time_profile_input.reshape(B*S,D)) # (B* 10, 2)
-                print(f'    time_profile before reshape: {time_profile}')
-                time_profile = time_profile.reshape(B,S,2)
-                print(f'    time_profile after reshape: {time_profile}')
-            else:
-                Chi_0s = Aux[:,4].unsqueeze(1).to(device) # (B, 1) # Kinda cheating but its not a problem, cause i can resample the pixel space values instead and it will be good
-                
-                test_chis = torch.linspace(0, 1, steps=10, device=device).unsqueeze(0).repeat(N_Events, 1) # (B, 10) # between 0 and 1
-                test_chis = (test_chis * Chi_0s).unsqueeze(-1) # (B, 10) # between 0 and chi_0
-                
-                latent_space_expanded = latent_space.unsqueeze(1).expand(-1, test_chis.shape[1], -1)
-
-                time_profile_input = torch.cat([latent_space_expanded, test_chis], dim=-1) # (B, 10, latent_space_size + 1)
-                B,S,D = time_profile_input.shape
-                
-                time_profile = self.produce_time_profile(time_profile_input.reshape(B*S,D)) # (B* 10, 2)
-                time_profile = time_profile.reshape(B,S,2)
-            
-        else:
-            time_profile = None
-
-        if self.Train_Type in ['Geometry','Both']:
-            geometry = self.produce_geometry(latent_space)*self.Geometry_OutWeights # (B, 3)
-        else:
-            geometry = None
-
-        
-
-        return {
-            'time_profile': time_profile, # (B, 10, 2)
-            'geometry'    : geometry    , # (B, 2)
+            'N_iter'      : N_iter
         }
     
         # I can regenerate the expected chi_is in loss, cause i know the chi_0s
@@ -665,8 +370,91 @@ class Model_Autoencoder_TimeFit(nn.Module):
 
 
 
-class Model_Autoencoder_TimeFit_withGeometry(nn.Module):
-    Name = 'Model_Autoencoder_TimeFit_withGeometry'
+
+
+class LatentPixelBlock(nn.Module):
+    def __init__(self, pixel_dim, latent_dim, hidden_dim, n_heads):
+        super().__init__()
+
+        assert hidden_dim % n_heads == 0
+        self.n_heads  = n_heads
+        self.head_dim = hidden_dim // n_heads
+
+        # projections
+        self.to_q = nn.Linear(latent_dim, hidden_dim)
+        self.to_k = nn.Linear(pixel_dim , hidden_dim)
+        self.to_v = nn.Linear(pixel_dim , hidden_dim)
+
+        # output projection after attention pooling
+        self.to_out = nn.Linear(hidden_dim, hidden_dim)
+
+        # latent update
+        self.update = nn.Sequential(
+            nn.Linear(latent_dim + hidden_dim, hidden_dim),
+            nn.GELU(),
+            nn.Linear(hidden_dim, latent_dim)
+        )
+
+        # gating (stability)
+        self.gate = nn.Linear(latent_dim + hidden_dim, latent_dim)
+
+        # norms
+        self.norm_latent = nn.LayerNorm(latent_dim)
+        self.norm_pixel  = nn.LayerNorm(pixel_dim)
+
+    def forward(self, X, mask, Z):
+        """
+        X   : (B, P, F)
+        mask: (B, P)  (1 = valid, 0 = padding)
+        Z   : (B, D)
+        """
+        
+        B, P, _ = X.shape
+
+        # ---- normalize ----   # not sure about this, maybe it will help with stability, maybe it will ruin things
+        X = self.norm_pixel(X)
+        Z = self.norm_latent(Z)
+
+        # ---- projections ----
+        Q = self.to_q(Z)                      # (B,    Hdim)
+        K = self.to_k(X)                      # (B, P, Hdim)
+        V = self.to_v(X)                      # (B, P, Hdim)
+
+        # ---- reshape to heads ----
+        Q = Q.view(B   , self.n_heads, self.head_dim)         # (B, H, d)
+        K = K.view(B, P, self.n_heads, self.head_dim)         # (B, P, H, d)
+        V = V.view(B, P, self.n_heads, self.head_dim)
+
+        K = K.permute(0, 2, 1, 3)   # (B, H, P, d)
+        V = V.permute(0, 2, 1, 3)   # (B, H, P, d)
+
+        # ---- masked attention pooling ----
+        # (B, H, P)
+        attn_logits = (Q.unsqueeze(2) * K).sum(-1) / torch.sqrt(torch.tensor(self.head_dim))
+        
+        mask = mask.unsqueeze(1)  # (B, 1, P)
+        attn_logits = attn_logits.masked_fill(mask == 0, -1e9)
+        attn = F.softmax(attn_logits, dim=-1)
+
+        pooled = (attn.unsqueeze(-1) * V).sum(dim=2)   # (B, H, d)
+
+        pooled = pooled.reshape(B, -1)                 # (B, Hdim)
+        pooled = self.to_out(pooled)
+
+        # ---- latent update ----
+        combined = torch.cat([Z, pooled], dim=-1)  # Pix Data + Latent Space Proj
+        dz = self.update(combined)
+        gate = torch.sigmoid(self.gate(combined))   # update control, i might be interested in how much this is magnitudinally, to decide when to stop iteration.  gate and dz by themselves are not useful, need to have combined to make decisions on iteration exit.
+        Z_change = gate * dz
+        Z_new = Z + Z_change
+
+        # return attn, pooled, Z_new
+        return {'Z_new': Z_new, 'attn': attn, 'pooled': pooled,'Z_change': Z_change}
+
+
+
+class Model_Autoencoder_TimeFit_Recursive(nn.Module):
+    Name = 'Model_Autoencoder_TimeFit_Recursive'
     Description = '''Model will try to figure out a state representation of the shower time profile
     Reconstruction of geometry is done from this state
     Training to be done in two steps
@@ -677,39 +465,36 @@ class Model_Autoencoder_TimeFit_withGeometry(nn.Module):
     '''
     
 
-    def __init__(self, in_main_channels =(3,), pixel_embedding_size = 32, latent_space_size = 32,N_dense_nodes = 64,Train_Type = 'Profile',**kwargs):
-        super(Model_Autoencoder_TimeFit_withGeometry, self).__init__()
+    def __init__(self, in_main_channels =(3,), pixel_embedding_size = 32, latent_space_size = 32,N_dense_nodes = 64,N_heads=4,Train_Type = 'Both',Exit_Early = False,**kwargs):
+        super(Model_Autoencoder_TimeFit_Recursive, self).__init__()
         
-        self.Pix_Features = in_main_channels[0]
         self.kwargs = kwargs
-        self.Train_Type = Train_Type
-        self.Debug_Mode = kwargs.get('Debug_Mode', False)
 
-        if self.Debug_Mode: 
-            print(f'    Model initialized with Train Type: {self.Train_Type} and Debug Mode: {self.Debug_Mode}')
-            print(f'    Trimming down the model sizes')
-            pixel_embedding_size = 8
-            latent_space_size    = 8
-            N_dense_nodes        = 16
-        # Encode in the Pixel's dimension - size-out (B, N_pix, latent_space_size)
-        self.pix_process = nn.Sequential(
-            nn.Linear(self.Pix_Features, pixel_embedding_size),
-            nn.LeakyReLU(),
-            nn.Linear(pixel_embedding_size, pixel_embedding_size),
-            nn.LeakyReLU(),
-        )
+        self.Pix_Features = in_main_channels[0] + 1 -1 # +1 Time Diffs -1 Charge # TODO: this will be wrong, need to check if i am using charge or not, if i am using extra trace features
+        self.Train_Type   = Train_Type
         
+        # assert Train_Type in ['Profile','Geometry','Both'], 'Train_Type should be one of Profile, Geometry, Both'
+        assert Train_Type == 'Both', 'This model is tuned to be trained on Geometry and Profile at the same time'
+        
+        self.Debug_Mode = kwargs.get('Debug_Mode', False)
+        
+        self.max_latent_iterations     = kwargs.get('max_latent_iterations'    , 10  )
+        self.latent_space_change_scale = kwargs.get('latent_space_change_scale', 0.01)
+        self.allow_early_exit = Exit_Early
+        print(f'    Model_Init - setting allow_early_exit to {self.allow_early_exit} and max_latent_iterations to {self.max_latent_iterations}')
+        self.iteration_weights = torch.linspace(0.2,1.0, steps=self.max_latent_iterations) if Exit_Early else torch.ones(self.max_latent_iterations)
+        self.iteration_weights = self.iteration_weights / self.iteration_weights.sum() # Normalize the weights, sum to 1
 
-        self.attention_pool = AttentionPooling(pixel_embedding_size)
-
-        self.construct_latent_space = nn.Linear(pixel_embedding_size, latent_space_size)
+        ###################
+        self.initial_latent_space = nn.Parameter(torch.zeros(latent_space_size)) # (latent_space_size,)
+        self.update_latent_space = LatentPixelBlock(pixel_dim=self.Pix_Features, latent_dim=latent_space_size, hidden_dim=pixel_embedding_size, n_heads=N_heads)
 
         self.produce_time_profile = nn.Sequential(
-            nn.Linear(latent_space_size + 1+3, N_dense_nodes), # +1 for the u coordinate +3 for the true geometry values
+            nn.Linear(latent_space_size + 1, N_dense_nodes), # +1 for the u coordinate
             nn.LeakyReLU(),
             nn.Linear(N_dense_nodes, N_dense_nodes),
             nn.LeakyReLU(),
-            nn.Linear(N_dense_nodes, 2) # predict t and q
+            nn.Linear(N_dense_nodes, 1) # predict t and q
         )
 
         self.produce_geometry = nn.Sequential(
@@ -719,161 +504,563 @@ class Model_Autoencoder_TimeFit_withGeometry(nn.Module):
             nn.LeakyReLU(),
             nn.Linear(N_dense_nodes, 3) # predict Chi_0* and log_Rp and T0
         )
+        
 
-        self.Geometry_OutWeights = torch.tensor([1,1,1])
-            
+        self.Geometry_OutWeights = kwargs.get('OutWeights', torch.tensor([1.0,1.0,1.0]))
+        print(f'    Model_Init - Geometry_OutWeights set to {self.Geometry_OutWeights}')
+
+
+
+
+
+
+
     def forward(self,Graph,Aux):
         if self.Debug_Mode and self.training:
+            raise NotImplementedError('Debug Mode is not implemented')
             return self.debug_forward(Graph,Aux)
         else:
             return self.clean_forward(Graph,Aux)
         
     def clean_forward(self,Graph,Aux):
-        device = self.pix_process[0].weight.device
 
+        device = self.initial_latent_space.device
+        
+        # ---- Unpack the graph data into a pixel space representation ----
         N_Events = len(Graph)
         N_pix_in_event = torch.tensor(list(map(len,map(lambda x: x['chi_is'],Graph))),device=device).int()
-        # I think this produces the exact thing i need
+        Time_norm_by_event = torch.tensor([event['norm_min_time'] for event in Graph], device=device).unsqueeze(1) # (B, 1)
+
         Mask = torch.arange(N_pix_in_event.max()+1,device=device).unsqueeze(0) < (N_pix_in_event+1).unsqueeze(1) # (B, N_pix)
 
         
-        Pix_Data = torch.zeros([N_Events, N_pix_in_event.max()+1, self.Pix_Features], device=device) # +1 for station data
+        Pix_Data = torch.zeros([N_Events, N_pix_in_event.max()+1, self.Pix_Features-1], device=device) # +1 for station data
         for i,event in enumerate(Graph):
-            Pix_Data[i,1:N_pix_in_event[i]+1,:] = torch.stack([event['chi_is'], event['time'], event['charge']], dim=-1).to(device)
-            Pix_Data[i,0                    ,:] = torch.tensor([event['station_chii'], event['station_time'], event['station_signal']], device=device) 
+            Pix_Data[i,1:N_pix_in_event[i]+1,:2] = torch.stack([event['chi_is'], event['time']], dim=-1).to(device)
+            Pix_Data[i,0                    ,:2] = torch.tensor([event['station_chii'], event['station_time']], device=device) 
 
-        pix_embedding =  self.pix_process(Pix_Data) # (B, N_pix, pixel_embedding_size)
-        latent_space  = self.attention_pool(pix_embedding, Mask) # (B, latent_space_size)
-        latent_space  = self.construct_latent_space(latent_space) # (B, latent_space_size)
+        
+        # ---- Initial conditions and preprocessing for the recursive latent space update ----
+        max_chis = torch.tensor([event['chi_is'].max() if event['chi_is'].numel() > 0 else 0 for event in Graph], device=device).unsqueeze(1) # (B, 1)
 
-        # Loss should take care of these debug prints
-        if self.Train_Type in ['Profile','Both']:
-            # Now make the preditions for the time profile
-            # for each event generate 10 u coordinates between 0 and chi_0
-            Chi_0s = Aux[:,4].unsqueeze(1).to(device) # (B, 1) # Kinda cheating but its not a problem, cause i can resample the pixel space values instead and it will be good
-            Rps    = Aux[:,5].unsqueeze(1).to(device)
-            T0s    = Aux[:,6].unsqueeze(1).to(device)
 
-            test_chis = torch.linspace(0, 1, steps=10, device=device).unsqueeze(0).repeat(N_Events, 1) # (B, 10) # between 0 and 1
-            test_chis = (test_chis * Chi_0s).unsqueeze(-1) # (B, 10) # between 0 and chi_0
+        pix_diffs = torch.zeros([N_Events, N_pix_in_event.max()+1, 1],device=device)
+        pix_space    = torch.cat([Pix_Data, pix_diffs], dim=-1) # (B, N_pix, Pix_Features + 1)
+        
+        latent_space = self.initial_latent_space.unsqueeze(0).expand(N_Events, -1) # (B, latent_space_size)
+
+        input_chi_is = Pix_Data[:,:,0].unsqueeze(-1) # (B, N_pix, 1)
+        input_times  = Pix_Data[:,:,1].unsqueeze(-1) # (B, N_pix, 1)
+        
+        N_iter = 0
+        Acc_Loss = 0
+        Acc_Loss_track = []
+        # ---- Recursive Latent Space Update Loop ----
+        while N_iter < self.max_latent_iterations:
+
+            # ----  Update Latent Space ----
+            update_out = self.update_latent_space(pix_space, Mask, latent_space)
             
-            #Now we add true geometry values to the latent space
-            True_Geometry = torch.cat([Chi_0s, Rps, T0s], dim=-1) # (B, 3)
-            latent_space = torch.cat([latent_space, True_Geometry], dim=-1) # (B, latent_space_size + 3)
-            latent_space_expanded = latent_space.unsqueeze(1).expand(-1, test_chis.shape[1], -1)
-            
-            time_profile_input = torch.cat([latent_space_expanded, test_chis], dim=-1) # (B, 10, latent_space_size + 1)
+            latent_space  = update_out['Z_new']
+            latent_change = update_out['Z_change']
+
+
+            # ---- Make a reconstruction on initial pixel space ----
+            latent_space_expanded = latent_space.unsqueeze(1).expand(-1, input_chi_is.shape[1], -1)
+
+            time_profile_input = torch.cat([latent_space_expanded, input_chi_is], dim=-1) # (B, 10, latent_space_size + 1)
             B,S,D = time_profile_input.shape
             
-            time_profile = self.produce_time_profile(time_profile_input.reshape(B*S,D)) # (B* 10, 2)
-            time_profile = time_profile.reshape(B,S,2)
+            Reco_Time = self.produce_time_profile(time_profile_input.reshape(B*S,D)) # (B* 10, 1)
+            Reco_Time = Reco_Time.reshape(B,S,1)
             
-        else:
-            time_profile = None
+            pix_diffs = (Reco_Time - input_times).detach()
+            pix_space = pix_space.clone() # (B, N_pix, Pix_Features + 1)
+            pix_space[:,:,-1] = pix_diffs.squeeze(-1)
+            
 
-        if self.Train_Type in ['Geometry','Both']:
-            geometry = self.produce_geometry(latent_space)*self.Geometry_OutWeights # (B, 3)
-        else:
-            geometry = None
+            # ---- Calculate the reconstruction loss for this iteration, make sure to use mask ----
+
+            Acc_Loss += self.iteration_weights[N_iter] * F.mse_loss(Reco_Time[Mask], input_times[Mask])
+            Acc_Loss_track.append(F.mse_loss(Reco_Time, input_times).item())
+
+            # ---- Early Exit Check ----
+            N_iter += 1
+            if self.allow_early_exit and (N_iter > 1) and (latent_change.norm() < latent_space.norm()*self.latent_space_change_scale): # There is a thought to use dz and gate to make decisions on iteration exit. 
+                break
 
         
+        # ---- Predict the Time Profile and Geometry from the final latent space ----
+        
+        test_chis = torch.linspace(0, 1, steps=10, device=device).unsqueeze(0).repeat(N_Events, 1) # (B, 10) # between 0 and 1
+        test_chis = (test_chis * max_chis).unsqueeze(-1) # (B, 10) # between 0 and chi_0
+
+        latent_space_expanded = latent_space.unsqueeze(1).expand(-1, test_chis.shape[1], -1)
+
+        time_profile_input = torch.cat([latent_space_expanded, test_chis], dim=-1) # (B, 10, latent_space_size + 1)
+        B,S,D = time_profile_input.shape
+        
+        time_profile = self.produce_time_profile(time_profile_input.reshape(B*S,D)) # (B* 10, 2)
+        time_profile = time_profile.reshape(B,S,1)
+
+        geometry = self.produce_geometry(latent_space)*self.Geometry_OutWeights.to(device) # (B, 3)
+
+        # ---- Hard Coded Geometry Unnormalisation ----
+        # geometry[:,0]  = torch.arccos(geometry[:,0]) # Chi_0 is between 0 and pi
+        # geometry[:,1]  = geometry[:,1] * 5e4 # scale roughly 0-1 
+        # geometry[:,2]  = geometry[:,2] * 1e5 # scale roughly -2.5-1 0.5ish 
+        
+        intermideate_chi_0 = torch.tanh(geometry[:,0]) 
+        
+        geom_out = torch.stack([
+            intermideate_chi_0,
+            geometry[:,1],
+            geometry[:,2]
+        ], dim=-1)
 
         return {
-            'time_profile': time_profile, # (B, 10, 2)
-            'geometry'    : geometry    , # (B, 2)
+            'time_profile': time_profile, # (B, 10, 1)
+            'test_chi_is' : test_chis   , # (B, 10, 1)
+            'geometry'    : geom_out    , # (B, 3)
+            'Acc_Loss'    : Acc_Loss    , # (scalar) - this is the loss of the time profile reconstruction at each iteration, can be used to analyze convergence and maybe make decisions on iteration exit in future versions
+            'Time_Norm'   : Time_norm_by_event.squeeze(-1),
+
+            # ---- Unused for training, might be useful in analysis ----
+            'N_iter'      : N_iter      , # (scalar)
+            'latent_space': latent_space,  # (B, latent_space_size) - this is the final latent space representation after the recursive updates, can be used for analysis and maybe for other purposes in future versions
+            'Acc_Loss_track': Acc_Loss_track # (list of scalars) - this tracks the reconstruction loss at each iteration, can be useful for analyzing convergence behavior
         }
     
-        # I can regenerate the expected chi_is in loss, cause i know the chi_0s
-        # For now this is just for continuity, i will start with only training the latent space construction 
 
-    def debug_forward(self,Graph,Aux):
-        raise NotImplementedError('Debug forward not implemented for this model yet, cause its a bit more work to print the geometry inputs and outputs, will do if needed')
-        device = self.pix_process[0].weight.device
 
+class Multi_headedAttention(nn.Module): # Same as LatentPixelBlock but without the detailed output, might reduce this further later # TODO
+    def __init__(self, pixel_dim, latent_dim, hidden_dim, n_heads):
+        super().__init__()
+
+        assert hidden_dim % n_heads == 0
+        self.n_heads  = n_heads
+        self.head_dim = hidden_dim // n_heads
+
+        # projections
+        self.to_q = nn.Linear(latent_dim, hidden_dim)
+        self.to_k = nn.Linear(pixel_dim , hidden_dim)
+        self.to_v = nn.Linear(pixel_dim , hidden_dim)
+
+        # output projection after attention pooling
+        self.to_out = nn.Linear(hidden_dim, hidden_dim)
+
+        # latent update
+        self.update = nn.Sequential(
+            nn.Linear(latent_dim + hidden_dim, hidden_dim),
+            nn.GELU(),
+            nn.Linear(hidden_dim, latent_dim)
+        )
+
+        # gating (stability)
+        self.gate = nn.Linear(latent_dim + hidden_dim, latent_dim)
+
+        # norms
+        self.norm_latent = nn.LayerNorm(latent_dim)
+        self.norm_pixel  = nn.LayerNorm(pixel_dim)
+
+    def forward(self, X, mask, Z):
+        """
+        X   : (B, P, F)
+        mask: (B, P)  (1 = valid, 0 = padding)
+        Z   : (B, D)
+        """
+        
+        B, P, _ = X.shape
+
+        # ---- normalize ----   # not sure about this, maybe it will help with stability, maybe it will ruin things
+        X = self.norm_pixel(X)
+        Z = self.norm_latent(Z)
+
+        # ---- projections ----
+        Q = self.to_q(Z)                      # (B,    Hdim)
+        K = self.to_k(X)                      # (B, P, Hdim)
+        V = self.to_v(X)                      # (B, P, Hdim)
+
+        # ---- reshape to heads ----
+        Q = Q.view(B   , self.n_heads, self.head_dim)         # (B, H, d)
+        K = K.view(B, P, self.n_heads, self.head_dim)         # (B, P, H, d)
+        V = V.view(B, P, self.n_heads, self.head_dim)
+
+        K = K.permute(0, 2, 1, 3)   # (B, H, P, d)
+        V = V.permute(0, 2, 1, 3)   # (B, H, P, d)
+
+        # ---- masked attention pooling ----
+        # (B, H, P)
+        attn_logits = (Q.unsqueeze(2) * K).sum(-1) / torch.sqrt(torch.tensor(self.head_dim))
+        
+        mask = mask.unsqueeze(1)  # (B, 1, P)
+        attn_logits = attn_logits.masked_fill(mask == 0, -1e9)
+        attn = F.softmax(attn_logits, dim=-1)
+
+        pooled = (attn.unsqueeze(-1) * V).sum(dim=2)   # (B, H, d)
+
+        pooled = pooled.reshape(B, -1)                 # (B, Hdim)
+        pooled = self.to_out(pooled)
+
+        # ---- latent update ----
+        combined = torch.cat([Z, pooled], dim=-1)  # Pix Data + Latent Space Proj
+        dz = self.update(combined)
+        gate = torch.sigmoid(self.gate(combined))   # update control, i might be interested in how much this is magnitudinally, to decide when to stop iteration.  gate and dz by themselves are not useful, need to have combined to make decisions on iteration exit.
+        Z_change = gate * dz
+        
+        return Z_change
+
+
+
+class Model_Latent_Iterator_only_geometry(nn.Module):
+    Name = 'Model_Latent_Iterator'
+    Description = '''
+    Model that updates iteratively updates pixel space and latent embedding (residual style)
+    No early Exit
+    Only geometry preds on the first attempt, might add the time profile preds in the future.
+    No Early exit is supposed
+    '''
+    ArgumentsList = [
+        'in_main_channels', 'pixel_embedding_size', 'latent_space_size', 'N_dense_nodes', 'N_heads', 'Train_Type',
+        'Debug_Mode', 'max_latent_iterations', 'Early_Exit',
+        'init_pix_embedding_activation'  , 'init_pix_embedding_dropout'   ,
+        'pix_space_updater_activation'   ,'pix_space_updater_dropout'     ,
+        'latent_space_updater_activation', 'latent_space_updater_dropout' ,
+        'geometry_predictor_activation'  , 'geometry_predictor_dropout'   ,
+        'OutWeights'
+    ]
+    def __init__(self,
+                 in_main_channels =(3,), 
+                 pixel_embedding_size = 32, 
+                 latent_space_size = 32,
+                 N_dense_nodes = 64,
+                 N_heads = 4,
+                 Train_Type = 'Geometry',
+                 **kwargs):
+        super(Model_Latent_Iterator_only_geometry, self).__init__()
+
+        # ---- Parse Arguments ---- # 
+        self.Pix_Features = in_main_channels[0] - 1 # Not doing charge for now
+        self.Train_Type   = Train_Type
+        self.Debug_Mode = kwargs.get('Debug_Mode', False)
+        self.max_latent_iterations = kwargs.get('max_latent_iterations', 5)
+        self.Early_Exit = kwargs.get('Early_Exit', False)
+
+        # ---- Make architecture based assertions ---- #
+        assert self.Train_Type == 'Geometry', 'This model is trained only on Geometry'
+        assert self.Early_Exit == False     , 'Early Exit is assumed False for this model'
+        
+
+
+        # ---- Define the architecture ---- # 
+
+        # Initial Pixel Embedding
+        # (B,N_pix, Pix_features) ->  (B,N_pix, pixel_embedding_size)
+        init_pix_embedding_activation = kwargs.get('init_pix_embedding_activation', nn.ReLU)
+        self.init_pix_embedding = nn.Sequential(
+                                                nn.Linear(self.Pix_Features, pixel_embedding_size),
+                                                init_pix_embedding_activation(),
+                                                nn.Dropout(kwargs.get('init_pix_embedding_dropout', 0.2)),
+                                                nn.Linear(pixel_embedding_size, pixel_embedding_size),
+        )   
+        
+
+
+        # Initial Latent Space
+        self.initial_latent_space = nn.Parameter(torch.randn(latent_space_size)) # Using gaussian, will train to something else i guess
+
+        # Layer Norms here
+        self.pix_embed_norm    = nn.LayerNorm(pixel_embedding_size)
+        self.latent_space_norm = nn.LayerNorm(latent_space_size)
+
+
+        # pix_space_updater
+        # (B, N_pix , pixel_embedding_size + latent_space_size) -> (B, N_pix, pixel_embedding_size)
+        pix_space_updater_activation = kwargs.get('pix_space_updater_activation', nn.ReLU)
+        self.pix_space_updater = nn.Sequential(
+                                               nn.Linear(pixel_embedding_size + latent_space_size, pixel_embedding_size),
+                                               pix_space_updater_activation(),
+                                               nn.Dropout(kwargs.get('pix_space_updater_dropout', 0.2)),
+                                               nn.Linear(pixel_embedding_size, pixel_embedding_size)
+        )
+
+
+        # Headed Attention block
+        # (B, N_pix, pixel_embedding_size) -> (B, latent_space_size)
+        # Have mask of valid pixels to 
+        self.MHA_latent_update = Multi_headedAttention(pixel_dim=pixel_embedding_size, latent_dim=latent_space_size, hidden_dim=pixel_embedding_size, n_heads=N_heads)
+
+
+        # latent_space_updater
+        # (B, latent_space_size) -> (B, latent_space_size)
+        latent_space_activation = kwargs.get('latent_space_updater_activation', nn.ReLU)
+        self.latent_space_updater = nn.Sequential(
+                                                nn.Linear(latent_space_size, 2*N_dense_nodes),
+                                                latent_space_activation(),
+                                                nn.Dropout(kwargs.get('latent_space_updater_dropout', 0.2)),
+                                                nn.Linear(2*N_dense_nodes, latent_space_size)
+        )
+
+        # Geometry Predictor
+        # (B, latent_space_size) -> (B, N_out)
+        geometry_activation = kwargs.get('geometry_predictor_activation', nn.ReLU)
+        PredStyle = kwargs.get('PredStyle','SimpleGeometry')
+        if PredStyle in ['SimpleGeometry','Unnormed_Chi_0']:
+            N_out = 3
+            self.OutWeights = kwargs.get('OutWeights', torch.tensor([1.0,1.0,1.0]))
+        
+        if PredStyle == 'Double_Chi_0':
+            N_out = 4
+            self.OutWeights = kwargs.get('OutWeights', torch.tensor([1.0,1.0,1.0,0.0]))
+            assert self.OutWeights.shape[0] == 4, 'OutWeights should have 4 elements for Double_Chi_0 PredStyle'
+        
+        self.produce_geometry = nn.Sequential(
+                                              nn.Linear(latent_space_size, N_dense_nodes),
+                                              geometry_activation(),
+                                              nn.Dropout(kwargs.get('geometry_predictor_dropout', 0.2)),
+                                              nn.Linear(N_dense_nodes, N_out) # predict Chi_0* and log_Rp and T0
+        )
+
+        
+        
+
+
+    def forward(self,Graph,Aux):
+        device = self.initial_latent_space.device
+        
+        # ---- Unpack the graph data into a pixel space representation ----
         N_Events = len(Graph)
         N_pix_in_event = torch.tensor(list(map(len,map(lambda x: x['chi_is'],Graph))),device=device).int()
-        # I think this produces the exact thing i need
+        Time_norm_by_event = torch.tensor([event['norm_min_time'] for event in Graph], device=device).unsqueeze(1) # (B, 1)
+
         Mask = torch.arange(N_pix_in_event.max()+1,device=device).unsqueeze(0) < (N_pix_in_event+1).unsqueeze(1) # (B, N_pix)
 
-        if self.Debug_Mode and self.training:
-            print(f'    Forward Pass, Found the following inputs')
-            print(f'    N_Events: {N_Events}')
-            print(f'    N_pix_in_event: {N_pix_in_event}')        
-            print(f'    Mask: {Mask}')        
-
+        
         Pix_Data = torch.zeros([N_Events, N_pix_in_event.max()+1, self.Pix_Features], device=device) # +1 for station data
         for i,event in enumerate(Graph):
-            Pix_Data[i,1:N_pix_in_event[i]+1,:] = torch.stack([event['chi_is'], event['time'], event['charge']], dim=-1).to(device)
-            Pix_Data[i,0                    ,:] = torch.tensor([event['station_chii'], event['station_time'], event['station_signal']], device=device) 
+            Pix_Data[i,1:N_pix_in_event[i]+1,:2] = torch.stack([event['chi_is'], event['time']], dim=-1).to(device)
+            Pix_Data[i,0                    ,:2] = torch.tensor([event['station_chii'], event['station_time']], device=device) 
 
+
+        # ---- initial embeddings ---- #
+        latent_space = self.initial_latent_space.unsqueeze(0).expand(N_Events, -1) # (B, latent_space_size)
         
-        if self.Debug_Mode and self.training:
-            print(f'    Pix_Data: {Pix_Data}')
-            pix_embedding =  self.pix_process(Pix_Data) # (B, N_pix, pixel_embedding_size)
-            print(f'    pix_embedding: {pix_embedding}')
-            latent_space  = self.attention_pool(pix_embedding, Mask) # (B, latent_space_size)
-            print(f'    latent_space after attention pool: {latent_space}')
-            latent_space  = self.construct_latent_space(latent_space) # (B, latent_space_size)
-            print(f'    latent_space after construction: {latent_space}')
+        pix_embedding = self.init_pix_embedding(Pix_Data) # (B, N_pix, pixel_embedding_size)
 
-        else:
-            pix_embedding =  self.pix_process(Pix_Data) # (B, N_pix, pixel_embedding_size)
-            latent_space  = self.attention_pool(pix_embedding, Mask) # (B, latent_space_size)
-            latent_space  = self.construct_latent_space(latent_space) # (B, latent_space_size)
+        # ---- Recursive Latent Space Update Loop ----
+        for iteration in range(self.max_latent_iterations):
 
-        # Loss should take care of these debug prints
-        if self.Train_Type in ['Profile','Both']:
-            # Now make the preditions for the time profile
-            # for each event generate 10 u coordinates between 0 and chi_0
-            if self.Debug_Mode and self.training:
-                print(f'    Generating Time Profile Predictions, Found the following inputs')
-                Chi_0s = Aux[:,4].unsqueeze(1).to(device) # (B, 1) # Kinda cheating but its not a problem, cause i can resample the pixel space values instead and it will be good
-                print(f'    Chi_0s: {Chi_0s}')
-                test_chis = torch.linspace(0, 1, steps=10, device=device).unsqueeze(0).repeat(N_Events, 1) # (B, 10) # between 0 and 1
-                print(f'    test_chis before scaling: {test_chis}')
-                test_chis = (test_chis * Chi_0s).unsqueeze(-1) # (B, 10) # between 0 and chi_0
-                print(f'    test_chis after scaling: {test_chis}')
-                
-                latent_space_expanded = latent_space.unsqueeze(1).expand(-1, test_chis.shape[1], -1)
-                print(f'    latent_space_expanded: {latent_space_expanded}')
+            # Update Pixel Space with current Latent Space
+            latent_space_expanded = latent_space.unsqueeze(1).expand(-1, pix_embedding.shape[1], -1)
+            pix_update_input = torch.cat([pix_embedding, latent_space_expanded], dim=-1)
 
-                time_profile_input = torch.cat([latent_space_expanded, test_chis], dim=-1) # (B, 10, latent_space_size + 1)
-                print(f'    time_profile_input: {time_profile_input}')
-                B,S,D = time_profile_input.shape
-                
-                time_profile = self.produce_time_profile(time_profile_input.reshape(B*S,D)) # (B* 10, 2)
-                print(f'    time_profile before reshape: {time_profile}')
-                time_profile = time_profile.reshape(B,S,2)
-                print(f'    time_profile after reshape: {time_profile}')
-            else:
-                Chi_0s = Aux[:,4].unsqueeze(1).to(device) # (B, 1) # Kinda cheating but its not a problem, cause i can resample the pixel space values instead and it will be good
-                
-                test_chis = torch.linspace(0, 1, steps=10, device=device).unsqueeze(0).repeat(N_Events, 1) # (B, 10) # between 0 and 1
-                test_chis = (test_chis * Chi_0s).unsqueeze(-1) # (B, 10) # between 0 and chi_0
-                
-                latent_space_expanded = latent_space.unsqueeze(1).expand(-1, test_chis.shape[1], -1)
+            pix_embedding_update = self.pix_space_updater(pix_update_input)
+            pix_embedding = pix_embedding + pix_embedding_update
 
-                time_profile_input = torch.cat([latent_space_expanded, test_chis], dim=-1) # (B, 10, latent_space_size + 1)
-                B,S,D = time_profile_input.shape
-                
-                time_profile = self.produce_time_profile(time_profile_input.reshape(B*S,D)) # (B* 10, 2)
-                time_profile = time_profile.reshape(B,S,2)
-            
-        else:
-            time_profile = None
 
-        if self.Train_Type in ['Geometry','Both']:
-            geometry = self.produce_geometry(latent_space)*self.Geometry_OutWeights # (B, 3)
-        else:
-            geometry = None
+            # Update Latent Space with current Pixel Space
+            latent_space_update = self.MHA_latent_update(pix_embedding, Mask, latent_space)
+            latent_space = latent_space + latent_space_update
 
-        
+            # Further update the latent space with a feedforward network # Going to skip this bit for now dont think i need to do this # TODO
+            latent_space_update = self.latent_space_updater(latent_space)
+            latent_space = latent_space + latent_space_update
+
+        # ---- Predict Geometry from the final latent space ----
+        geometry = self.produce_geometry(latent_space)*self.OutWeights.to(device)
 
         return {
-            'time_profile': time_profile, # (B, 10, 2)
-            'geometry'    : geometry    , # (B, 2)
+            'geometry'    : geometry    , # (B, N_out)
+            'Time_Norm'   : Time_norm_by_event.squeeze(-1),
         }
-    
-        # I can regenerate the expected chi_is in loss, cause i know the chi_0s
-        # For now this is just for continuity, i will start with only training the latent space construction 
 
+
+
+
+class Loss_class():
+    def __init__(self, Loss_info, **kwargs):
+        self.Loss_info = merge_parameters(Loss_info, kwargs)
+        # Training Info
+        self.Train_Type = self.Loss_info.get('Train_Type', 'Geometry')
+        self.OutWeights = self.Loss_info.get('OutWeights', torch.tensor([1.0,1.0,1.0]))
+        self.Debug_Mode = self.Loss_info.get('Debug_Mode', False)
+
+        assert self.Train_Type == 'Geometry', 'This loss class is only implemented for Geometry training'
+        if self.Debug_Mode: print(f'    Loss Class initialized with Train Type: {self.Train_Type} and Debug Mode: {self.Debug_Mode} which is NOT IMPLEMENTED')
+
+        # Loss Info
+        self.keys         = Loss_info.get('keys'         , ['Chi_0','Rp','T0'])
+        self.ReturnTensor = Loss_info.get('ReturnTensor' , True  ) 
+
+
+
+
+    def __call__(self, Pred, Truth, Extra_Loss_Info, **kwargs):
+        
+        Geometry_Pred = Pred['geometry']
+        Time_Norm     = Pred['Time_Norm']
+        device = Geometry_Pred.device
+
+        
+        if Extra_Loss_Info.get('PredStyle','SimpleGeometry') == 'Double_Chi_0':
+            losses = {}
+            losses['T0'] = F.mse_loss(Geometry_Pred[:,3]+ Time_Norm *1e9/1e7, Truth[:,2].to(device))*self.OutWeights[3] # Pixel Time Shift in units of ns
+            losses['Rp'] = F.mse_loss(Geometry_Pred[:,2], Truth[:,1].to(device))*self.OutWeights[2]
+
+            Truth_Chi_0_cos = Truth[:,0].to(device)
+            Truth_Chi_0_sin = torch.sqrt(1 - Truth_Chi_0_cos**2 + 1e-8) # Add small epsilon for numerical stability
+            losses['Chi_0'] = F.mse_loss(Geometry_Pred[:,0], Truth_Chi_0_cos)*self.OutWeights[0] + F.mse_loss(Geometry_Pred[:,1], Truth_Chi_0_sin)*self.OutWeights[1]
+        if Extra_Loss_Info.get('PredStyle','SimpleGeometry') == 'Unnormed_Chi_0':
+            losses = {}
+            losses['Chi_0'] = F.mse_loss(Geometry_Pred[:,0], torch.acos(Truth[:,0].to(device)))     *self.OutWeights[0]
+            losses['Rp'] = F.mse_loss(Geometry_Pred[:,1], Truth[:,1].to(device))                    *self.OutWeights[1]
+            losses['T0'] = F.mse_loss(Geometry_Pred[:,2]+ Time_Norm *1e9/1e7, Truth[:,2].to(device))*self.OutWeights[2]
+
+        else:
+            losses = {}
+            for i,key in enumerate(self.keys):
+                if key == 'T0':
+                    losses[key] = F.mse_loss(Geometry_Pred[:,i]+ Time_Norm *1e9/1e7, Truth[:,i].to(device))*self.OutWeights[i] # Pixel Time Shift in units of ns 
+                if key == 'Chi_0':
+                    losses[key] = F.mse_loss(Geometry_Pred[:,i], Truth[:,i].to(device))*self.OutWeights[i]
+                else:
+                    losses[key] = F.mse_loss(Geometry_Pred[:,i], Truth[:,i].to(device))*self.OutWeights[i]
+            
+
+
+
+        losses['Total'] = sum(losses[key] for key in self.keys)
+        if not self.ReturnTensor: losses = {key:loss.item() for key,loss in losses.items()}
+        
+        return losses
+    
+
+class Validate_class():
+    '''
+    Class Variant of the validate call
+    Takes model, Dataset, Loss Function, device, keys
+    Dataset is defined as ProcessingDatasetContainer in the Dataset2.py
+    keys are to be used in the loss function
+    BatchSize to change in case it doesnt fit into memory
+    Returns the average loss
+    '''
+    def __init__(self, Loss_Info, **kwargs):
+        self.Loss_Info = merge_parameters(Loss_Info, kwargs)
+        self.Train_Type = self.Loss_Info.get('Train_Type', 'Geometry')
+        # No Need to do assertions, assuming they will be tripped by loss long before validation is called
+
+
+    def __call__(self, model, Dataset, Loss, Extra_Loss_Info, **kwargs):
+        Loss_info = merge_parameters(Extra_Loss_Info, kwargs)
+        Debug_Mode = Loss_info.get('Debug_Mode', False)
+
+        if Debug_Mode: print('################ VALIDATION ################')
+
+        # make sure the Dataset State is Val
+        Dataset.State = 'Val'
+        TrainingBatchSize = Dataset.BatchSize
+        Dataset.BatchSize = len(Dataset) // 256 
+        # Dataset.BatchSize = 1 if Debug_Mode else BatchSize  # CARE THIS THING AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+        
+        model.eval()
+
+        
+
+        Geometry_preds = []
+        Truths         = []
+        Time_Norms     = []
+        
+        with torch.no_grad():
+            for i,(_, BatchMains, BatchAux, BatchTruth, _)  in enumerate(Dataset):
+                Model_out = model(BatchMains,BatchAux)
+                
+                Geometry_preds.append(Model_out['geometry'].to('cpu'))
+                
+                Time_Norms.append(Model_out.get('Time_Norm', torch.zeros(BatchTruth.shape[0])).to('cpu'))
+                Truths.append(BatchTruth.to('cpu'))
+
+                if Debug_Mode: break
+
+            
+            
+            
+            Geometry_preds = torch.cat(Geometry_preds,dim=0)
+            Time_Norms = torch.cat(Time_Norms,dim=0)
+            Truths     = torch.cat(Truths    ,dim=0)
+            
+        # Return Batch Size to old value
+        Dataset.BatchSize = TrainingBatchSize
+        
+        Loss_inp_dict = {
+            'geometry'    : Geometry_preds,
+            'Time_Norm'  : Time_Norms
+        }
+        return Loss(Loss_inp_dict, Truths, Loss_info)
+
+
+class Metric_class():
+    def __init__(self, Loss_Info, **kwargs):
+        self.Loss_Info = merge_parameters(Loss_Info, kwargs)
+        self.Train_Type = self.Loss_Info.get('Train_Type', 'Geometry')
+        # No Need to do assertions, assuming they will be tripped by loss long before validation is called
+
+
+    def __call__(self, model, Dataset, Extra_Loss_Info, **kwargs):
+        Loss_info = merge_parameters(Extra_Loss_Info, kwargs)
+        Debug_Mode = Loss_info.get('Debug_Mode', False)
+
+
+        if Debug_Mode: print('################ METRICS ################')
+
+        # ---- Setup ----
+        Dataset.State = 'Val'
+        TrainingBatchSize = Dataset.BatchSize
+        Dataset.BatchSize = len(Dataset) //256
+
+        model.eval()
+        
+        Geometry_preds = []
+        Truths         = []
+        Time_Norms     = []
+        # ---- Calculate
+        
+        with torch.no_grad():
+            for i,(_, BatchMains, BatchAux, BatchTruth, _)  in enumerate(Dataset):
+                Model_out = model(BatchMains,BatchAux)
+                
+                Geometry_preds.append(Model_out['geometry'].to('cpu'))
+                Time_Norms.append(Model_out.get('Time_Norm', torch.zeros(BatchTruth.shape[0])).to('cpu'))
+                Truths.append(BatchTruth.to('cpu'))
+
+                if Debug_Mode: break
+            
+            Geometry_preds = torch.cat(Geometry_preds,dim=0)
+            Time_Norms = torch.cat(Time_Norms,dim=0)
+            Truths     = torch.cat(Truths    ,dim=0)
+
+
+        # ---- Metrics Calculation ----
+        # Unnormalise Data
+        if Extra_Loss_Info.get('PredStyle','SimpleGeometry') in ['Default','SimpleGeometry']:
+            Geometry_preds[:,0] = torch.clip(Geometry_preds[:,0], -0.999, 0.999) # Clip to avoid numerical issues with arccos
+        if Extra_Loss_Info.get('PredStyle','SimpleGeometry') == 'Unnormed_Chi_0':
+            Geometry_preds[:,0] = torch.acos(Geometry_preds[:,0])
+        if Extra_Loss_Info.get('PredStyle','SimpleGeometry') == 'Double_Chi_0':
+            Geometry_preds_Chi_0 = torch.cos(torch.atan2(Geometry_preds[:,0], Geometry_preds[:,1]))
+            Geometry_preds = torch.stack([Geometry_preds_Chi_0, Geometry_preds[:,2], Geometry_preds[:,3]], dim=-1)
+
+
+        Geometry_preds = Dataset.Unnormalise_Truth(Geometry_preds)
+        Truths         = Dataset.Unnormalise_Truth(Truths)
+
+        Geometry_preds[:,2] = Geometry_preds[:,2] + Time_Norms *1e9/1e7
+
+
+        Metric_Style = Loss_info.get('Metric_Style', 'Default')
+        if Metric_Style in ['Default','Percentrile68']:
+            Metrics = {}
+            for i,key in enumerate(['Chi_0','Rp','T0']):
+                Metrics[key] = torch.quantile(torch.abs(Geometry_preds[:,i] - Truths[:,i]), 0.68).item() 
+                
+        Dataset.BatchSize = TrainingBatchSize
+        return Metrics

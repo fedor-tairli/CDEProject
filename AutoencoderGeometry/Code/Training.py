@@ -177,12 +177,14 @@ if __name__ == '__main__' and not TestingThings:
         from Model_Autoencoder import Loss as Loss_function
         from Model_Autoencoder import validate, metric
 
-        from Model_Autoencoder import Model_Autoencoder_TimeFit, Model_Autoencoder_TimeFit_withGeometry
+        from Model_Autoencoder import Model_Autoencoder_TimeFit_Recursive
+
         
         
         Models = [
             # Model_Autoencoder_TimeFit,
-            Model_Autoencoder_TimeFit_withGeometry,
+            # Model_Autoencoder_TimeFit_withGeometry,
+            Model_Autoencoder_TimeFit_Recursive
         ]
         
         if SelectNetwork is not None:
@@ -199,7 +201,7 @@ if __name__ == '__main__' and not TestingThings:
             'in_main_channels': (3,)  ,
             'pixel_embedding_size': 32,
             'latent_space_size'   : 32 if BottleNeckSize is None else BottleNeckSize,
-            'Train_Type'      : 'Profile', # Profile, Geometry or Both
+            'Train_Type'      : 'Both', # Profile, Geometry or Both
             'N_dense_nodes'   : 128   ,
 
             'in_node_channels': 5     ,

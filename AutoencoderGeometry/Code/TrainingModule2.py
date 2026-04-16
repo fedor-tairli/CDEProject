@@ -8,7 +8,7 @@ from time import time
 
 class Tracker():
      
-    def __init__(self,scheduler,Training_Parameters = {},Model_Parameters = {}):
+    def __init__(self,scheduler,Training_Parameters = {},Model_Parameters = {},**kwargs):
         self.StartTime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         self.EpochLoss         = {'Total':[]} # Average loss over epoch
         self.EpochValLoss      = {'Total':[]} # Loss on Validation Set
@@ -159,6 +159,8 @@ class Tracker():
                         continue
                     f.write(f'        {key} : {self.EpochMetric[key][-1]} \n')
                 f.write('\n')
+                
+                
         else:
             print('No epochs were completed, no log will be made')
 
@@ -211,13 +213,20 @@ def PlotOnEpoch(Dataset,Model,Epoch,plotSavePath,device):
         Model.train()
 
 
-        
+def merge_parameters(PriorityParameters, SecondaryParameters):
+    return {**SecondaryParameters, **PriorityParameters} # This overwrites the Secondary if there is same Priority key
 
 
-        
+import inspect
+def resolve_calculator(calculator, Training_Parameters):
+    if inspect.isclass(calculator):
+        return calculator(Training_Parameters)   # initialize
+    return calculator                        # already a function / callable
+
 
 def Train(model,Dataset,optimiser,scheduler,Loss,Validation,Metric,Tracker,\
           Training_Parameters = {}, Model_Parameters = {},**kwargs):
+    
     '''
     Usage:
         Call it and it will loop over training, and return the model and Training Track
@@ -244,26 +253,36 @@ def Train(model,Dataset,optimiser,scheduler,Loss,Validation,Metric,Tracker,\
             Optimiser : 'Adam' or 'SGD'
             Debug_Mode : If True, will run the training in debug mode
           Model_Parameters : Dictionary Containing the Model Parameters (Model Dependent, this function only stores them in a log file)
-
-
     '''
-    # Processing Paths and Kwargs
-    plotOnEpochCompletionPath = kwargs['plotOnEpochCompletionPath'] if 'plotOnEpochCompletionPath' in kwargs else None
-    SaveBatchInfo             = kwargs['SaveBatchInfo']             if 'SaveBatchInfo'             in kwargs else False
-    AutodetectAnomaly         = kwargs['AutodetectAnomaly']         if 'AutodetectAnomaly'         in kwargs else True
-    device                    = kwargs['device']                    if 'device'                    in kwargs else 'cuda'
-    LogPath                   = kwargs['LogPath']                   if 'LogPath'                   in kwargs else None
-    Debug_Mode                = Training_Parameters['Debug_Mode']   if 'Debug_Mode'   in Training_Parameters else False
-    Epochs = Training_Parameters['epochs']
-    Accumulation_steps = Training_Parameters['accumulation_steps']
-    batchBreak = Training_Parameters['batchBreak']
+
+    # Kwargs may be passed separately and for cont. will be appened to both Training and Model Parameters
+
+    Training_Parameters = merge_parameters(Training_Parameters, kwargs)    
+    Model_Parameters    = merge_parameters(Model_Parameters   , kwargs)
+
+    # Set Training parameters
+    plotOnEpochCompletionPath = Training_Parameters.get('plotOnEpochCompletionPath', None  )
+    SaveBatchInfo             = Training_Parameters.get('SaveBatchInfo'            , False )
+    AutodetectAnomaly         = Training_Parameters.get('AutodetectAnomaly'        , True  )
+    device                    = Training_Parameters.get('device'                   , 'cuda')
+    LogPath                   = Training_Parameters.get('LogPath'                  , None  )
+    Debug_Mode                = Training_Parameters.get('Debug_Mode'               , False )
+    Epochs                    = Training_Parameters.get('epochs'                   , 100   )
+    Accumulation_steps        = Training_Parameters.get('accumulation_steps'       , 1     )
+    batchBreak                = Training_Parameters.get('batchBreak'               , 1e99  )
+    tolerance                 = Training_Parameters.get('validation_tolerance'     , 0.05  ) # Tolerance for validation loss improvement for scheduler step
     if Debug_Mode:
-        print(f' Train Function is setting Batch Break and Epoch counter to 1 for Debug Mode, ignoring Training Parameters')
+        print(f'    Train Function is setting Batch Break and Epoch counter to 1 for Debug Mode, ignoring Training Parameters')
         batchBreak = 1
         Epochs     = 1
         Dataset.BatchSize = 1
 
 
+    # Initialise calculator functions
+    
+    Loss       = resolve_calculator(Loss      ,Training_Parameters)
+    Validation = resolve_calculator(Validation,Training_Parameters)
+    Metric     = resolve_calculator(Metric    ,Training_Parameters)
 
 
     assert SaveBatchInfo == False, 'SaveBatchInfo is not implemented'
@@ -271,9 +290,7 @@ def Train(model,Dataset,optimiser,scheduler,Loss,Validation,Metric,Tracker,\
     if callable(Tracker):
         Tracker = Tracker(scheduler,Training_Parameters = Training_Parameters, Model_Parameters = Model_Parameters)
             
-    
     Min_Val_Loss = 1e99
-    tolerance = 0.05
     
     CUDA_Memory_Fails_Counter = 0
 
@@ -290,7 +307,7 @@ def Train(model,Dataset,optimiser,scheduler,Loss,Validation,Metric,Tracker,\
         
         model.train()
         batchN           = 0
-        # initialise epoch losses
+        # Initialise epoch losses
         epoch_loss       = {}
         epoch_loss['Total'] = 0
         
@@ -299,25 +316,31 @@ def Train(model,Dataset,optimiser,scheduler,Loss,Validation,Metric,Tracker,\
         
         for _, BatchMains, BatchAux, BatchTruth, _ in Dataset: # Dataset Event index is not used
             try:
-                if batchN > batchBreak:
-                    break
+                # ---- Checks and Batch SetUp ----
+                if batchN > batchBreak: break
+                if Accumulation_steps == 1 or batchN%Accumulation_steps == 0: optimiser.zero_grad()
                 
-                if Accumulation_steps == 1 or batchN%Accumulation_steps == 0:
-                    optimiser.zero_grad()
-                
+                # ---- Forward Pass ----
                 predictions = model(BatchMains,BatchAux)
-                losses = Loss(predictions,BatchTruth,keys=Dataset.Truth_Keys,Debug_Mode = Debug_Mode) # Loss will be a dictionary if multiple losses are used (At least one of the losses must be labeled 'Total')
-                # if batchN % 1000 == 0:
-                #     Loss(predictions,BatchTruth,keys=Dataset.Truth_Keys,Debug_Mode = True)
-                
+
+                # ---- Backward Pass ----
+
+                Loss_Extra_Info = {'Epoch': i, 'Batch': batchN, 'BatchSize': Dataset.BatchSize, 'keys': Dataset.Truth_Keys } # Extra information that can be used in the loss function if needed
+                Loss_Extra_Info = merge_parameters(Loss_Extra_Info, Training_Parameters) 
+
+                losses = Loss(predictions,BatchTruth, Loss_Extra_Info) # Loss will be a dictionary if multiple losses are used (At least one of the losses must be labeled 'Total')
                 losses['Total'].backward()
+                optimiser.step()
                 
+                
+
+
+                # ---- Records and Timing ----
                 for key in losses.keys():
                     if key not in epoch_loss: epoch_loss[key] = 0
                     epoch_loss[key] += losses[key].item()
                 
-                optimiser.step()
-                                
+                
                 if batchN % 100 == 0:
                     if batch_time is None:
                         batch_time = time()
@@ -337,6 +360,7 @@ def Train(model,Dataset,optimiser,scheduler,Loss,Validation,Metric,Tracker,\
                 
                 torch.cuda.empty_cache()
 
+            # ---- Exception Handling ----
             except KeyboardInterrupt:
                 print('Keyboard Interrupt, stopping training')
                 Tracker.Abort_Call_Reason = 'Keyboard Interrupt'
@@ -365,6 +389,7 @@ def Train(model,Dataset,optimiser,scheduler,Loss,Validation,Metric,Tracker,\
                     Tracker.Abort_Call = True
                     break
         
+        # ---- Epoch End Checks ----
         print() # Progress Bar
         if Tracker.AbortHuh():
             print(f'Aborting Training from epoch break: {Tracker.Abort_Call_Reason}')
@@ -376,9 +401,10 @@ def Train(model,Dataset,optimiser,scheduler,Loss,Validation,Metric,Tracker,\
         try:
             # Validation and Early stopping # metric is a str to be printed
             if Debug_Mode: print(f'\n    Calculating Validation Loss for Tracker')
-            val_losses  = Validation(model,Dataset,Loss,device,Debug_Mode = Debug_Mode)
+            # Can Use the same Info as in the last Loss calculation
+            val_losses  = Validation(model,Dataset,Loss,Loss_Extra_Info)
             val_loss    = val_losses['Total'] # Needed for scheduler step below
-            val_metrics = Metric(model,Dataset,device,keys=Dataset.Truth_Keys,Debug_Mode=Debug_Mode)
+            val_metrics = Metric(model,Dataset,Loss_Extra_Info)
             
             if type(val_metrics) == dict and 'Units' in val_metrics:
                 val_metric_units = val_metrics['Units']
@@ -395,6 +421,7 @@ def Train(model,Dataset,optimiser,scheduler,Loss,Validation,Metric,Tracker,\
             # print(str(e))
             Tracker.Abort_Call_Reason = f'Unknown Error in Validation, {e}'
             Tracker.Abort_Call = True
+            raise e
             
         if True: # Scheduler Step is done here
             if val_loss < Min_Val_Loss*(1-tolerance):
