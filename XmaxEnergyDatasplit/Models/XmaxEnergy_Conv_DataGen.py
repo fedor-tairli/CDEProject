@@ -1,5 +1,6 @@
 import torch
-# import numpy as np
+import numpy as np
+import os
 # from Dataset2 import DatasetContainer, ProcessingDataset # No actual need as i am not using them explicitly
 
 
@@ -44,6 +45,48 @@ def Standard_Graph_Conv3d_Traces(Dataset,ProcessingDataset):
         if len(Pstart)>0 : Pstart = Pstart - torch.min(Pstart)
         # Append to the GraphData
         Graph.append([Traces,Xs,Ys,Pstart])
+        
+        
+    
+    if ProcessingDataset is None:
+        return Graph
+    ProcessingDataset._Graph = Graph
+    ProcessingDataset.GraphData = True
+    if ProcessingDataset._EventIds is None:
+        ProcessingDataset._EventIds = IDsList
+    else:
+        assert ProcessingDataset._EventIds == IDsList, 'EventIDs do not match'    
+
+
+def Standard_Graph_Conv3d_Traces_AdjustedPstart(Dataset,ProcessingDataset):
+    '''Will just provide 1 mirror array of pixel traces'''
+    IDsList = ()
+    Graph = [] # Will have Event in dim1, [Trace,X,Y,PulseStart] in dim2, values of dim2 in dim3
+    for i,Event in enumerate(Dataset):
+        print(f'    Processing Main {i} / {len(Dataset)}',end='\r')
+        ID = (Event.get_value('EventID_1/2').int()*10000 + Event.get_value('EventID_2/2').int()%10000).item()
+        IDsList += (ID,)
+
+        Traces = Event.get_trace_values()
+        Pstart = Event.get_pixel_values('PulseStart')
+        # Pstop  = Event.get_pixel_values('PulseStop')
+
+        EyeID = Event.get_pixel_values('EyeID'  )
+        TelID = Event.get_pixel_values('TelID'  )
+        PixID = Event.get_pixel_values('PixelID')
+        PixStatus = Event.get_pixel_values('Status')
+
+        Xs,Ys = IndexToXY(PixID-(TelID-1)*440+1,return_tensor=True)
+
+        # Traces normalised Here
+        # Traces = torch.log1p((Traces).clip(min=0))
+        Traces = Traces.clip(min=0)
+        # Pstart normalised Here
+        if len(Pstart[PixStatus==4])>0 : Pstart = Pstart - (torch.min(Pstart[PixStatus == 4])-4) # 4 is 10% of the final time dimension of the data array
+        # Append to the GraphData
+        ValidPstart = Pstart>=0
+
+        Graph.append([Traces[ValidPstart],Xs[ValidPstart],Ys[ValidPstart],Pstart[ValidPstart]])
         
         
     
@@ -228,6 +271,223 @@ def Aux_Descriptors(Dataset, ProcessingDataset):
 
 
 
+def Calculate_Angular_Velocity(Event):
+    # Calculate Angular Velocity
+    pix_Thetas    = Event.get_pixel_values('Theta')
+    pix_Phis      = Event.get_pixel_values('Phi')
+    pix_Centroids = Event.get_pixel_values('PulseCentroid')
+    pix_Status    = Event.get_pixel_values('Status')
+
+    Cut        = pix_Status == 4
+    pix_Thetas = pix_Thetas[Cut]
+    pix_Phis   = pix_Phis  [Cut]
+    pix_Centroids = pix_Centroids[Cut]
+
+    if pix_Thetas.shape[0] < 2:
+        return 0.0
+    else:
+        Gen_SDPTheta = Event.get_value('Gen_SDPTheta').item()
+        Gen_SDPPhi   = Event.get_value('Gen_SDPPhi').item()
+
+        # Angular Span
+        theta_r = torch.deg2rad(torch.tensor(Gen_SDPTheta, dtype=torch.float32))
+        phi_r   = torch.deg2rad(torch.tensor(Gen_SDPPhi,   dtype=torch.float32))
+        SDP_Vec = torch.stack([
+            torch.sin(theta_r) * torch.cos(phi_r),
+            torch.sin(theta_r) * torch.sin(phi_r),
+            torch.cos(theta_r)
+        ])
+        SDP_Vec = SDP_Vec / torch.linalg.norm(SDP_Vec)
+
+        z_axis   = torch.tensor([0., 0., 1.])
+        SDP_Orth = torch.linalg.cross(SDP_Vec, z_axis) if not torch.allclose(SDP_Vec, z_axis) else torch.tensor([1., 0., 0.])
+        SDP_Orth = SDP_Orth / torch.linalg.norm(SDP_Orth)
+        SDP_Perp = torch.linalg.cross(SDP_Vec, SDP_Orth)
+
+        pix_az   = torch.deg2rad(pix_Phis)
+        pix_el   = torch.deg2rad(pix_Thetas)
+        pix_vecs = torch.stack([
+            torch.cos(pix_el) * torch.cos(pix_az),
+            torch.cos(pix_el) * torch.sin(pix_az),
+            torch.sin(pix_el)
+        ], dim=1)
+
+        proj   = pix_vecs - torch.outer(pix_vecs @ SDP_Vec, SDP_Vec)
+        proj   = proj / torch.linalg.norm(proj, dim=1, keepdim=True)
+        angles = torch.sort(torch.arctan2(proj @ SDP_Perp, proj @ SDP_Orth) % (2 * torch.pi)).values
+        gaps   = torch.cat([torch.diff(angles), (angles[0] + 2 * torch.pi - angles[-1]).unsqueeze(0)])
+        Angular_Span = torch.rad2deg(2 * torch.pi - gaps.max())
+
+        # Duration
+        if pix_Centroids.numel() == 0:
+            Duration = 0.0
+        else:
+            Duration = pix_Centroids.max().item() - pix_Centroids.min().item()
+
+        # Angular velocity
+        return Angular_Span.item() / Duration if Duration > 0.0 else 0.0
+
+
+def EnergySpoofed_Dataset(Dataset,ProcessingDataset):
+    '''Will spoof Events of energy above and below actual dataset  bounds'''
+    # IDs
+    IDsList = ()
+    
+    # Main
+    Graph = [] # Will have Event in dim1, [Trace,X,Y,PulseStart] in dim2, values of dim2 in dim3
+    
+    # Truth
+    Truth_Gen_Xmax   = []
+    Truth_Gen_Energy = []
+    Truth_Rec_Xmax   = []
+    Truth_Rec_Energy = []
+
+    # Aux
+    Aux_Event_Class   = []
+    Aux_Primary       = []
+    Aux_Gen_LogE      = []
+    Aux_Gen_CosZenith = []
+    Aux_Gen_Xmax      = []
+    Aux_Gen_Chi0      = []
+    Aux_Gen_Rp        = []
+
+    Aux_Angular_Velocity = []
+
+    Aux_Spoofing = []
+
+    for i, Event in enumerate(Dataset):
+        print(f'    Processing Spoofed Dataset {i} / {len(Dataset)}',end='\r')
+        ID = (Event.get_value('EventID_1/2').int()*10000 + Event.get_value('EventID_2/2').int()%10000).item()
+
+        
+        
+        # ---- Aux Values ---- #
+        # Get the values
+        T_Event_Class   =  Event.get_value('Event_Class')
+        T_Primary       =  Event.get_value('Primary')
+        T_Gen_LogE      =  Event.get_value('Gen_LogE')
+        T_Gen_CosZenith =  Event.get_value('Gen_CosZenith')
+        T_Gen_Xmax      =  Event.get_value('Gen_Xmax')
+        T_Gen_Chi0      =  Event.get_value('Gen_Chi0')
+        T_Gen_Rp        =  Event.get_value('Gen_Rp')
+        T_Angular_Velocity = torch.tensor(Calculate_Angular_Velocity(Event))
+
+
+        # ---- Truth Values ---- #
+        # Get the values
+        # T_Gen_Xmax   = Event.get_value('Gen_Xmax')
+        # T_Gen_Energy = Event.get_value('Gen_LogE')
+        T_Rec_Xmax   = Event.get_value('Rec_Xmax')
+        T_Rec_Energy = Event.get_value('Rec_LogE')
+        
+
+        # ---- Main ---- #
+        Traces = Event.get_trace_values()
+        Pstart = Event.get_pixel_values('PulseStart')
+
+        EyeID     = Event.get_pixel_values('EyeID'  )
+        TelID     = Event.get_pixel_values('TelID'  )
+        PixID     = Event.get_pixel_values('PixelID')
+        PixStatus = Event.get_pixel_values('Status')
+
+        Xs,Ys = IndexToXY(PixID-(TelID-1)*440+1,return_tensor=True)
+
+        # Traces normalised Here
+        # Trces = torch.log1p((Traces).clip(min=0))
+        Traces = Traces.clip(min=0)
+        # Pstart normalised Here
+        if len(Pstart)>0 : Pstart = Pstart - torch.min(Pstart)
+
+        
+        # ---- Spoof ---- #
+
+        for s in [torch.tensor(-1.0),torch.tensor(0.0),torch.tensor(1.0)]:
+            
+            # Spoofed Energy Values
+            S_Traces = Traces.clone()
+            S_Traces = S_Traces * (10**s)
+
+            S_Gen_LogE = T_Gen_LogE + s
+            S_Rec_Energy = T_Rec_Energy + s
+
+
+
+            # ---- Append to the Data ---- #
+            # ID
+            IDsList += (ID,)
+            # Data
+            Graph.append([S_Traces,Xs,Ys,Pstart])
+            # Truth
+            Truth_Gen_Xmax   .append(T_Gen_Xmax)
+            Truth_Gen_Energy .append(S_Gen_LogE)
+            Truth_Rec_Xmax   .append(T_Rec_Xmax)
+            Truth_Rec_Energy .append(S_Rec_Energy)
+            # Aux
+            Aux_Event_Class     .append(T_Event_Class)
+            Aux_Primary         .append(T_Primary)
+            Aux_Gen_LogE        .append(T_Gen_LogE)
+            Aux_Gen_CosZenith   .append(T_Gen_CosZenith)
+            Aux_Gen_Xmax        .append(T_Gen_Xmax)
+            Aux_Gen_Chi0        .append(T_Gen_Chi0)
+            Aux_Gen_Rp          .append(T_Gen_Rp)
+            Aux_Angular_Velocity.append(T_Angular_Velocity)
+
+            Aux_Spoofing.append(s)
+
+    # Convert to tensors
+    Truth_Gen_Xmax   = torch.stack(Truth_Gen_Xmax)
+    Truth_Gen_Energy = torch.stack(Truth_Gen_Energy)
+    Truth_Rec_Xmax   = torch.stack(Truth_Rec_Xmax)
+    Truth_Rec_Energy = torch.stack(Truth_Rec_Energy)
+
+    Aux_Event_Class   = torch.stack(Aux_Event_Class)
+    Aux_Primary       = torch.stack(Aux_Primary)
+    Aux_Gen_LogE      = torch.stack(Aux_Gen_LogE)
+    Aux_Gen_CosZenith = torch.stack(Aux_Gen_CosZenith)
+    Aux_Gen_Xmax      = torch.stack(Aux_Gen_Xmax)
+    Aux_Gen_Chi0      = torch.stack(Aux_Gen_Chi0)
+    Aux_Gen_Rp        = torch.stack(Aux_Gen_Rp)
+    Aux_Angular_Velocity = torch.stack(Aux_Angular_Velocity)
+    Aux_Spoofing      = torch.stack(Aux_Spoofing)
+
+    # Normalise Truth 
+    XmaxMean = 591
+    XmaxStd  = 72
+
+    Truth_Gen_Xmax = (Truth_Gen_Xmax - XmaxMean) / XmaxStd
+    Truth_Rec_Xmax = (Truth_Rec_Xmax - XmaxMean) / XmaxStd
+
+    EnergyMean = 16.15
+    EnergyStd  = 0.475
+    Truth_Gen_Energy = (Truth_Gen_Energy - EnergyMean) / EnergyStd
+    Truth_Rec_Energy = (Truth_Rec_Energy - EnergyMean) / EnergyStd
+
+    # Save to ProcessingDataset
+    if ProcessingDataset is None:
+        return Graph, torch.stack((Truth_Gen_Xmax,Truth_Gen_Energy),dim=1), torch.stack((Truth_Rec_Xmax,Truth_Rec_Energy),dim=1), torch.stack((Aux_Event_Class,Aux_Primary,Aux_Gen_LogE,Aux_Gen_CosZenith,Aux_Gen_Xmax,Aux_Gen_Chi0,Aux_Gen_Rp,Aux_Angular_Velocity,Aux_Spoofing),dim=1)
+    else:
+        ProcessingDataset._Graph = Graph
+        ProcessingDataset.GraphData = True
+
+        ProcessingDataset._Truth = torch.stack((Truth_Gen_Xmax,Truth_Gen_Energy),dim=1)
+        ProcessingDataset._Rec   = torch.stack((Truth_Rec_Xmax,Truth_Rec_Energy),dim=1)
+        ProcessingDataset.Unnormalise_Truth = Unnormalise_XmaxEnergy
+        ProcessingDataset.Truth_Keys  = ('Xmax','LogE')
+        ProcessingDataset.Truth_Units = ('g/cm^2','')
+        
+        ProcessingDataset._Aux = torch.stack((Aux_Event_Class,Aux_Primary,Aux_Gen_LogE,Aux_Gen_CosZenith,Aux_Gen_Xmax,Aux_Gen_Chi0,Aux_Gen_Rp,Aux_Angular_Velocity,Aux_Spoofing),dim=1)
+        ProcessingDataset.Aux_Keys = ('Event_Class','Primary','LogE','CosZenith','Xmax','Chi0','Rp','AngularVelocity','Spoofing')
+        ProcessingDataset.Aux_Units = ('','','','','g/cm^2','rad','m','Deg/100ns','')
+
+        if ProcessingDataset._EventIds is None:
+            ProcessingDataset._EventIds = IDsList
+        else:
+            assert ProcessingDataset._EventIds == IDsList, 'EventIDs do not match'
+
+
+
+
+
 def High_Angular_Velocity_Cut(ProcessingDataset,**kwargs):
 
     All_Angular_Velocities = ProcessingDataset._Aux[:,7] # Assuming Angular Velocity is the 8th column in Aux
@@ -253,4 +513,19 @@ def All_Angular_Velocity(ProcessingDataset,**kwargs):
     ProcessingDataset._Good_Event_Mask = Good_Event_Mask.squeeze()
     print(f'Keeping all events with valid Angular Velocity, keeping {Good_Event_Mask.sum().item()} out of {len(Good_Event_Mask)} events.')
 
+def Rejection_Fail_Ids_cut(ProcessingDataset,**kwargs):
+    Default_Rejection_IDs_Path = '/remote/tychodata/ftairli/work/CDEs/XmaxEnergyDatasplit/Code/fail_ids_from_rej.csv'
+    Rejection_IDs_Path = kwargs.get('Rejection_Fail_IDs_Path', Default_Rejection_IDs_Path)
+
+    if not os.path.exists(Rejection_IDs_Path):
+           raise FileNotFoundError(f'Rejection IDs file not found at {Rejection_IDs_Path}. Please provide a valid path to the rejection fail IDs file.') 
     
+    ids = np.loadtxt(Rejection_IDs_Path, skiprows=1, dtype=int)
+    ids_tensor = torch.tensor(ids)
+
+    EventIds = torch.tensor(ProcessingDataset._EventIds)
+
+    Good_Event_Mask = ~torch.isin(EventIds, ids_tensor)
+    ProcessingDataset._Good_Event_Mask = Good_Event_Mask.squeeze()
+    print(f'Applied Rejection Fail IDs cut, keeping {Good_Event_Mask.sum().item()} out of {len(Good_Event_Mask)} events.')
+

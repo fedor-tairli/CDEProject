@@ -372,6 +372,10 @@ def Train(model,Dataset,optimiser,scheduler,Loss,Validation,Metric,Tracker,\
                     CUDA_Memory_Fails_Counter += 1
                     print('CUDA out of memory, skipping batch')
                     torch.cuda.empty_cache()
+                    
+                    Dataset.BatchSize = max(1, Dataset.BatchSize//1.1)
+                    print(f'Setting Batch Size to {Dataset.BatchSize}')
+                        
                     if CUDA_Memory_Fails_Counter > 10:
                         print('Too many CUDA out of memory errors, aborting training')
                         Tracker.Abort_Call_Reason = 'Too many CUDA out of memory errors'

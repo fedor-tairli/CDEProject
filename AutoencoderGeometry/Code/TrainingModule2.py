@@ -297,7 +297,9 @@ def Train(model,Dataset,optimiser,scheduler,Loss,Validation,Metric,Tracker,\
     # Training Loop for Ungraphed Data
     torch.autograd.set_detect_anomaly(AutodetectAnomaly)
     batch_time = None
+    Training_Start_Time = time()
     for i in range(Epochs):
+        EpochStartTime = time()
         print(f'Epoch {i+1}/{Epochs}') # Progress Bar
         Info = {'EpochLearningRate':[param_group['lr'] for param_group in optimiser.param_groups][0]} # Information required for the Tracker at this stage
         if Debug_Mode:
@@ -391,6 +393,8 @@ def Train(model,Dataset,optimiser,scheduler,Loss,Validation,Metric,Tracker,\
         
         # ---- Epoch End Checks ----
         print() # Progress Bar
+        EpochTime = time() - EpochStartTime
+        print(f'Epoch {i+1} train cycle completed in {EpochTime:.4f}s')
         if Tracker.AbortHuh():
             print(f'Aborting Training from epoch break: {Tracker.Abort_Call_Reason}')
             break
@@ -443,12 +447,15 @@ def Train(model,Dataset,optimiser,scheduler,Loss,Validation,Metric,Tracker,\
 
         
 
-        if Tracker.AbortHuh():
-            print(f'Aborting Training: {Tracker.Abort_Call_Reason}')
-            break
+        print(f'Epoch {i+1} completed in {time() - EpochStartTime:.4f}s | Total Training Time: {time() - Training_Start_Time:.4f}s')
+        print('-------------------------------------')
         if plotOnEpochCompletionPath!=None:
             PlotOnEpoch(Dataset,model,i,plotOnEpochCompletionPath,device)
-        print('-------------------------------------')
+    
+        if Tracker.AbortHuh():
+            print(f'Aborting Training: {Tracker.Abort_Call_Reason}')
+            print(f'Total Training Time: {time() - Training_Start_Time:.4f}s')
+            break
         
     if LogPath is not None:
         Tracker.MakeLog(LogPath,model.Name)

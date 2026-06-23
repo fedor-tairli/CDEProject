@@ -831,7 +831,7 @@ class Model_Latent_Iterator_only_geometry(nn.Module):
         # ---- Unpack the graph data into a pixel space representation ----
         N_Events = len(Graph)
         N_pix_in_event = torch.tensor(list(map(len,map(lambda x: x['chi_is'],Graph))),device=device).int()
-        Time_norm_by_event = torch.tensor([event['norm_min_time'] for event in Graph], device=device).unsqueeze(1) # (B, 1)
+        Time_norm_by_event = torch.tensor([event.get('norm_min_time',0) for event in Graph], device=device).unsqueeze(1) # (B, 1)
 
         Mask = torch.arange(N_pix_in_event.max()+1,device=device).unsqueeze(0) < (N_pix_in_event+1).unsqueeze(1) # (B, N_pix)
 
@@ -875,6 +875,364 @@ class Model_Latent_Iterator_only_geometry(nn.Module):
         }
 
 
+class Model_Latent_Iterator(nn.Module):
+    Name = 'Model_Latent_Iterator'
+    Description = '''
+    Model that updates iteratively updates pixel space and latent embedding (residual style)
+    No early Exit
+    Only geometry preds on the first attempt, might add the time profile preds in the future.
+    No Early exit is supposed
+    Added: AE decoder head that reconstructs pixel features from final pix_embedding.
+    '''
+    ArgumentsList = [
+        'in_main_channels', 'pixel_embedding_size', 'latent_space_size', 'N_dense_nodes', 'N_heads', 'Train_Type',
+        'Debug_Mode', 'max_latent_iterations', 'Early_Exit',
+        'init_pix_embedding_activation'  , 'init_pix_embedding_dropout'   ,
+        'pix_space_updater_activation'   ,'pix_space_updater_dropout'     ,
+        'latent_space_updater_activation', 'latent_space_updater_dropout' ,
+        'geometry_predictor_activation'  , 'geometry_predictor_dropout'   ,
+        'pix_decoder_activation'         , 'pix_decoder_dropout'          ,  # NEW
+        'OutWeights'
+    ]
+    def __init__(self,
+                 in_main_channels =(3,), 
+                 pixel_embedding_size = 32, 
+                 latent_space_size = 32,
+                 N_dense_nodes = 64,
+                 N_heads = 4,
+                 Train_Type = 'Geometry',
+                 **kwargs):
+        super(Model_Latent_Iterator, self).__init__()
+
+        # ---- Parse Arguments ---- # 
+        self.Pix_Features = in_main_channels[0] - 1
+        self.Train_Type   = Train_Type
+        self.Debug_Mode = kwargs.get('Debug_Mode', False)
+        self.max_latent_iterations = kwargs.get('max_latent_iterations', 5)
+        self.Early_Exit = kwargs.get('Early_Exit', False)
+
+        # ---- Make architecture based assertions ---- #
+        # assert self.Train_Type == 'Geometry', 'This model is trained only on Geometry'
+        assert self.Early_Exit == False     , 'Early Exit is assumed False for this model'
+
+        # ---- Define the architecture ---- # 
+
+        # Initial Pixel Embedding
+        # (B, N_pix, Pix_features) -> (B, N_pix, pixel_embedding_size)
+        init_pix_embedding_activation = kwargs.get('init_pix_embedding_activation', nn.ReLU)
+        self.init_pix_embedding = nn.Sequential(
+                                                nn.Linear(self.Pix_Features, pixel_embedding_size),
+                                                init_pix_embedding_activation(),
+                                                nn.Dropout(kwargs.get('init_pix_embedding_dropout', 0.2)),
+                                                nn.Linear(pixel_embedding_size, pixel_embedding_size),
+        )   
+
+        # Initial Latent Space
+        self.initial_latent_space = nn.Parameter(torch.randn(latent_space_size))
+
+        # Layer Norms
+        self.pix_embed_norm    = nn.LayerNorm(pixel_embedding_size)
+        self.latent_space_norm = nn.LayerNorm(latent_space_size)
+
+        # pix_space_updater
+        # (B, N_pix, pixel_embedding_size + latent_space_size) -> (B, N_pix, pixel_embedding_size)
+        pix_space_updater_activation = kwargs.get('pix_space_updater_activation', nn.ReLU)
+        self.pix_space_updater = nn.Sequential(
+                                               nn.Linear(pixel_embedding_size + latent_space_size, pixel_embedding_size),
+                                               pix_space_updater_activation(),
+                                               nn.Dropout(kwargs.get('pix_space_updater_dropout', 0.2)),
+                                               nn.Linear(pixel_embedding_size, pixel_embedding_size)
+        )
+
+        # Multi-headed Attention for latent update
+        # (B, N_pix, pixel_embedding_size) -> (B, latent_space_size)
+        self.MHA_latent_update = Multi_headedAttention(
+            pixel_dim=pixel_embedding_size,
+            latent_dim=latent_space_size,
+            hidden_dim=pixel_embedding_size,
+            n_heads=N_heads
+        )
+
+        # latent_space_updater
+        # (B, latent_space_size) -> (B, latent_space_size)
+        latent_space_activation = kwargs.get('latent_space_updater_activation', nn.ReLU)
+        self.latent_space_updater = nn.Sequential(
+                                                nn.Linear(latent_space_size, 2*N_dense_nodes),
+                                                latent_space_activation(),
+                                                nn.Dropout(kwargs.get('latent_space_updater_dropout', 0.2)),
+                                                nn.Linear(2*N_dense_nodes, latent_space_size)
+        )
+
+        # Geometry Predictor
+        # (B, latent_space_size) -> (B, N_out)
+        geometry_activation = kwargs.get('geometry_predictor_activation', nn.ReLU)
+        PredStyle = kwargs.get('PredStyle', 'SimpleGeometry')
+        if PredStyle in ['SimpleGeometry', 'Unnormed_Chi_0']:
+            N_out = 3
+            self.OutWeights = kwargs.get('OutWeights', torch.tensor([1.0, 1.0, 1.0]))
+        if PredStyle == 'Double_Chi_0':
+            N_out = 4
+            self.OutWeights = kwargs.get('OutWeights', torch.tensor([1.0, 1.0, 1.0, 0.0]))
+            assert self.OutWeights.shape[0] == 4, 'OutWeights should have 4 elements for Double_Chi_0 PredStyle'
+
+        self.produce_geometry = nn.Sequential(
+                                              nn.Linear(latent_space_size, N_dense_nodes),
+                                              geometry_activation(),
+                                              nn.Dropout(kwargs.get('geometry_predictor_dropout', 0.2)),
+                                              nn.Linear(N_dense_nodes, N_out)
+        )
+
+        # ---- AE Decoder Head ---- #
+        # Query-value style: given X position and global latent, predict Y.
+        # This tests whether the latent truly encoded the trend rather than
+        # memorising pixel embeddings that already saw Y.
+        # (B, N_pix, 1 + latent_space_size) -> (B, N_pix, 1)
+        pix_decoder_activation = kwargs.get('pix_decoder_activation', nn.ReLU)
+        self.pix_decoder = nn.Sequential(
+            nn.Linear(1 + latent_space_size, N_dense_nodes),
+            pix_decoder_activation(),
+            nn.Dropout(kwargs.get('pix_decoder_dropout', 0.2)),
+            nn.Linear(N_dense_nodes, N_dense_nodes),
+            pix_decoder_activation(),
+            nn.Linear(N_dense_nodes, 1)   # predict Y only
+        )
+
+    # ------------------------------------------------------------------
+    def forward(self, Graph, Aux):
+        device = self.initial_latent_space.device
+        
+        # ---- Unpack the graph data into a pixel space representation ----
+        N_Events = len(Graph)
+        N_pix_in_event = torch.tensor(list(map(len, map(lambda x: x['chi_is'], Graph))), device=device).int()
+        Time_norm_by_event = torch.tensor([event.get('norm_min_time', 0) for event in Graph], device=device).unsqueeze(1)  # (B, 1)
+
+        Mask = (torch.arange(N_pix_in_event.max() + 1, device=device).unsqueeze(0)< (N_pix_in_event + 1).unsqueeze(1))  # (B, N_pix)  True = valid slot
+
+        Pix_Data = torch.zeros([N_Events, N_pix_in_event.max() + 1, self.Pix_Features], device=device)
+        for i, event in enumerate(Graph):
+            Pix_Data[i, 1:N_pix_in_event[i]+1, :2] = torch.stack([event['chi_is'], event['time']], dim=-1).to(device)
+            Pix_Data[i, 0, :2] = torch.tensor([event['station_chii'], event['station_time']], device=device)
+
+        # ---- Initial embeddings ---- #
+        latent_space  = self.initial_latent_space.unsqueeze(0).expand(N_Events, -1)  # (B, L)
+        pix_embedding = self.init_pix_embedding(Pix_Data)                           # (B, N_pix, E)
+
+        # ---- Recursive Latent Space Update Loop ----
+        for iteration in range(self.max_latent_iterations):
+
+            # Update pixel space with current latent space
+            latent_expanded   = latent_space.unsqueeze(1).expand(-1, pix_embedding.shape[1], -1)
+            pix_update_input  = torch.cat([pix_embedding, latent_expanded], dim=-1)
+            pix_embedding     = pix_embedding + self.pix_space_updater(pix_update_input)
+
+            # Update latent space with current pixel space
+            latent_space = latent_space + self.MHA_latent_update(pix_embedding, Mask, latent_space)
+
+            # Further refine latent space with feedforward network
+            latent_space = latent_space + self.latent_space_updater(latent_space)
+
+        # ---- Predict Geometry ---- #
+        geometry = self.produce_geometry(latent_space) * self.OutWeights.to(device)
+
+        # ---- AE Decoder: query-value reconstruction ---- #
+        # X = chi_is (index 0), Y = time (index 1)
+        # Given X and the global latent (event geometry), predict Y.
+        pix_X = Pix_Data[..., 0:1]                                                          # (B, N_pix, 1)
+        latent_for_decode  = latent_space.unsqueeze(1).expand(-1, pix_X.shape[1], -1)       # (B, N_pix, L)
+        decoder_input      = torch.cat([pix_X, latent_for_decode], dim=-1)                  # (B, N_pix, 1+L)
+        pix_Y_pred         = self.pix_decoder(decoder_input)                                # (B, N_pix, 1)
+
+        # Zero out padding slots
+        pix_Y_pred = pix_Y_pred * Mask.unsqueeze(-1).float()
+
+        return {
+            'geometry'          : geometry,                          # (B, N_out)
+            'Time_Norm'         : Time_norm_by_event.squeeze(-1),   # (B,)
+            'pix_reconstruction': pix_Y_pred,                       # (B, N_pix, 1)  — predicted Y
+            'pix_target'        : Pix_Data[..., 1:2],               # (B, N_pix, 1)  — true Y
+            'pix_mask'          : Mask,                             # (B, N_pix)
+        }
+
+
+
+class Model_Latent_Iterator_IterLoss(nn.Module):
+    Name = 'Model_Latent_Iterator_IterLoss'
+    Description = '''
+    Model that updates iteratively updates pixel space and latent embedding (residual style)
+    No early Exit
+    Only geometry preds on the first attempt, might add the time profile preds in the future.
+    No Early exit is supposed
+    Added: AE decoder head that reconstructs pixel features from final pix_embedding.
+    '''
+    ArgumentsList = [
+        'in_main_channels', 'pixel_embedding_size', 'latent_space_size', 'N_dense_nodes', 'N_heads', 'Train_Type',
+        'Debug_Mode', 'max_latent_iterations', 'Early_Exit',
+        'init_pix_embedding_activation'  , 'init_pix_embedding_dropout'   ,
+        'pix_space_updater_activation'   ,'pix_space_updater_dropout'     ,
+        'latent_space_updater_activation', 'latent_space_updater_dropout' ,
+        'geometry_predictor_activation'  , 'geometry_predictor_dropout'   ,
+        'pix_decoder_activation'         , 'pix_decoder_dropout'          ,  # NEW
+        'OutWeights'
+    ]
+    def __init__(self,
+                 in_main_channels =(3,), 
+                 pixel_embedding_size = 32, 
+                 latent_space_size = 32,
+                 N_dense_nodes = 64,
+                 N_heads = 4,
+                 Train_Type = 'Geometry',
+                 **kwargs):
+        super(Model_Latent_Iterator_IterLoss, self).__init__()
+
+        # ---- Parse Arguments ---- # 
+        self.Pix_Features = in_main_channels[0] - 1
+        self.Train_Type   = Train_Type
+        self.Debug_Mode = kwargs.get('Debug_Mode', False)
+        self.max_latent_iterations = kwargs.get('max_latent_iterations', 5)
+        self.Early_Exit = kwargs.get('Early_Exit', False)
+
+        # ---- Make architecture based assertions ---- #
+        # assert self.Train_Type == 'Geometry', 'This model is trained only on Geometry'
+        assert self.Early_Exit == False     , 'Early Exit is assumed False for this model'
+
+        # ---- Define the architecture ---- # 
+
+        # Initial Pixel Embedding
+        # (B, N_pix, Pix_features) -> (B, N_pix, pixel_embedding_size)
+        init_pix_embedding_activation = kwargs.get('init_pix_embedding_activation', nn.ReLU)
+        self.init_pix_embedding = nn.Sequential(
+                                                nn.Linear(self.Pix_Features, pixel_embedding_size),
+                                                init_pix_embedding_activation(),
+                                                nn.Dropout(kwargs.get('init_pix_embedding_dropout', 0.2)),
+                                                nn.Linear(pixel_embedding_size, pixel_embedding_size),
+        )   
+
+        # Initial Latent Space
+        self.initial_latent_space = nn.Parameter(torch.randn(latent_space_size))
+
+        # Layer Norms
+        self.pix_embed_norm    = nn.LayerNorm(pixel_embedding_size)
+        self.latent_space_norm = nn.LayerNorm(latent_space_size)
+
+        # pix_space_updater
+        # (B, N_pix, pixel_embedding_size + latent_space_size) -> (B, N_pix, pixel_embedding_size)
+        pix_space_updater_activation = kwargs.get('pix_space_updater_activation', nn.ReLU)
+        self.pix_space_updater = nn.Sequential(
+                                               nn.Linear(pixel_embedding_size + latent_space_size, pixel_embedding_size),
+                                               pix_space_updater_activation(),
+                                               nn.Dropout(kwargs.get('pix_space_updater_dropout', 0.2)),
+                                               nn.Linear(pixel_embedding_size, pixel_embedding_size)
+        )
+
+        # Multi-headed Attention for latent update
+        # (B, N_pix, pixel_embedding_size) -> (B, latent_space_size)
+        self.MHA_latent_update = Multi_headedAttention(
+            pixel_dim=pixel_embedding_size,
+            latent_dim=latent_space_size,
+            hidden_dim=pixel_embedding_size,
+            n_heads=N_heads
+        )
+
+        # latent_space_updater
+        # (B, latent_space_size) -> (B, latent_space_size)
+        latent_space_activation = kwargs.get('latent_space_updater_activation', nn.ReLU)
+        self.latent_space_updater = nn.Sequential(
+                                                nn.Linear(latent_space_size, 2*N_dense_nodes),
+                                                latent_space_activation(),
+                                                nn.Dropout(kwargs.get('latent_space_updater_dropout', 0.2)),
+                                                nn.Linear(2*N_dense_nodes, latent_space_size)
+        )
+
+        # Geometry Predictor
+        # (B, latent_space_size) -> (B, N_out)
+        geometry_activation = kwargs.get('geometry_predictor_activation', nn.ReLU)
+        PredStyle = kwargs.get('PredStyle', 'SimpleGeometry')
+        if PredStyle in ['SimpleGeometry', 'Unnormed_Chi_0']:
+            N_out = 3
+            self.OutWeights = kwargs.get('OutWeights', torch.tensor([1.0, 1.0, 1.0]))
+        if PredStyle == 'Double_Chi_0':
+            N_out = 4
+            self.OutWeights = kwargs.get('OutWeights', torch.tensor([1.0, 1.0, 1.0, 0.0]))
+            assert self.OutWeights.shape[0] == 4, 'OutWeights should have 4 elements for Double_Chi_0 PredStyle'
+
+        self.produce_geometry = nn.Sequential(
+                                              nn.Linear(latent_space_size, N_dense_nodes),
+                                              geometry_activation(),
+                                              nn.Dropout(kwargs.get('geometry_predictor_dropout', 0.2)),
+                                              nn.Linear(N_dense_nodes, N_out)
+        )
+
+        # ---- AE Decoder Head ---- #
+        # Query-value style: given X position and global latent, predict Y.
+        # This tests whether the latent truly encoded the trend rather than
+        # memorising pixel embeddings that already saw Y.
+        # (B, N_pix, 1 + latent_space_size) -> (B, N_pix, 1)
+        pix_decoder_activation = kwargs.get('pix_decoder_activation', nn.ReLU)
+        self.pix_decoder = nn.Sequential(
+            nn.Linear(1 + latent_space_size, N_dense_nodes),
+            pix_decoder_activation(),
+            nn.Dropout(kwargs.get('pix_decoder_dropout', 0.2)),
+            nn.Linear(N_dense_nodes, N_dense_nodes),
+            pix_decoder_activation(),
+            nn.Linear(N_dense_nodes, 1)   # predict Y only
+        )
+
+    # ------------------------------------------------------------------
+    # In __init__, nothing changes except one note:
+    # pix_decoder input is now (1 + latent_space_size) — same as before, 
+    # because we query from latent + X at each iteration step
+
+    def forward(self, Graph, Aux):
+        device = self.initial_latent_space.device
+
+        N_Events        = len(Graph)
+        N_pix_in_event  = torch.tensor(list(map(len, map(lambda x: x['chi_is'], Graph))), device=device).int()
+        Time_norm_by_event = torch.tensor([event.get('norm_min_time', 0) for event in Graph], device=device).unsqueeze(1)
+
+        Mask = (torch.arange(N_pix_in_event.max() + 1, device=device).unsqueeze(0)< (N_pix_in_event + 1).unsqueeze(1))  # (B, N_pix)
+
+        Pix_Data = torch.zeros([N_Events, N_pix_in_event.max() + 1, self.Pix_Features], device=device)
+        for i, event in enumerate(Graph):
+            Pix_Data[i, 1:N_pix_in_event[i]+1, :2] = torch.stack([event['chi_is'], event['time']], dim=-1).to(device)
+            Pix_Data[i, 0, :2] = torch.tensor([event['station_chii'], event['station_time']], device=device)
+
+
+        # ---- Initial embeddings ---- #
+        latent_space  = self.initial_latent_space.unsqueeze(0).expand(N_Events, -1)  # (B, L)
+        pix_embedding = self.init_pix_embedding(Pix_Data)                           # (B, N_pix, E)
+
+        pix_X = Pix_Data[..., 0:1]  # (B, N_pix, 1)
+        pix_Y = Pix_Data[..., 1:2]  # (B, N_pix, 1)
+
+        iter_reconstructions = []
+
+        for iteration in range(self.max_latent_iterations):
+            latent_expanded  = latent_space.unsqueeze(1).expand(-1, pix_embedding.shape[1], -1)
+            pix_update_input = torch.cat([pix_embedding, latent_expanded], dim=-1)
+            pix_embedding    = pix_embedding + self.pix_space_updater(pix_update_input)
+
+            latent_space = latent_space + self.MHA_latent_update(pix_embedding, Mask, latent_space)
+            latent_space = latent_space + self.latent_space_updater(latent_space)
+
+            latent_for_decode = latent_space.unsqueeze(1).expand(-1, pix_X.shape[1], -1)
+            pix_Y_pred        = self.pix_decoder(torch.cat([pix_X, latent_for_decode], dim=-1))
+            pix_Y_pred        = pix_Y_pred * Mask.unsqueeze(-1).float()
+            iter_reconstructions.append(pix_Y_pred)
+
+        geometry = self.produce_geometry(latent_space) * self.OutWeights.to(device)
+
+        return {
+            'geometry'                : geometry,
+            'Time_Norm'               : Time_norm_by_event.squeeze(-1),
+            'pix_reconstruction'      : iter_reconstructions[-1],
+            'pix_iter_reconstructions': iter_reconstructions,
+            'pix_target'              : pix_Y,                  # raw, no normalisation
+            'pix_mask'                : Mask,
+        }
+
+
+
+
 
 
 class Loss_class():
@@ -885,7 +1243,7 @@ class Loss_class():
         self.OutWeights = self.Loss_info.get('OutWeights', torch.tensor([1.0,1.0,1.0]))
         self.Debug_Mode = self.Loss_info.get('Debug_Mode', False)
 
-        assert self.Train_Type == 'Geometry', 'This loss class is only implemented for Geometry training'
+        # assert self.Train_Type == 'Geometry', 'This loss class is only implemented for Geometry training'
         if self.Debug_Mode: print(f'    Loss Class initialized with Train Type: {self.Train_Type} and Debug Mode: {self.Debug_Mode} which is NOT IMPLEMENTED')
 
         # Loss Info
@@ -901,104 +1259,126 @@ class Loss_class():
         Time_Norm     = Pred['Time_Norm']
         device = Geometry_Pred.device
 
+        losses = {}
+        # ---- Geometry Loss ---- #
+        if self.Train_Type != 'Profile':
+            if Extra_Loss_Info.get('PredStyle','SimpleGeometry') == 'Double_Chi_0':
+                losses['T0'] = F.mse_loss(Geometry_Pred[:,3]+ Time_Norm *1e9/1e7, Truth[:,2].to(device))*self.OutWeights[3] # Pixel Time Shift in units of ns
+                losses['Rp'] = F.mse_loss(Geometry_Pred[:,2], Truth[:,1].to(device))*self.OutWeights[2]
+
+                Truth_Chi_0_cos = Truth[:,0].to(device)
+                Truth_Chi_0_sin = torch.sqrt(1 - Truth_Chi_0_cos**2 + 1e-8) # Add small epsilon for numerical stability
+                losses['Chi_0'] = F.mse_loss(Geometry_Pred[:,0], Truth_Chi_0_cos)*self.OutWeights[0] + F.mse_loss(Geometry_Pred[:,1], Truth_Chi_0_sin)*self.OutWeights[1]
+            if Extra_Loss_Info.get('PredStyle','SimpleGeometry') == 'Unnormed_Chi_0':
+                losses['Chi_0'] = F.mse_loss(Geometry_Pred[:,0], torch.acos(Truth[:,0].to(device)))     *self.OutWeights[0]
+                losses['Rp'] = F.mse_loss(Geometry_Pred[:,1], Truth[:,1].to(device))                    *self.OutWeights[1]
+                losses['T0'] = F.mse_loss(Geometry_Pred[:,2]+ Time_Norm *1e9/1e7, Truth[:,2].to(device))*self.OutWeights[2]
+
+            else:
+                for i,key in enumerate(self.keys):
+                    if key == 'T0':
+                        losses[key] = F.mse_loss(Geometry_Pred[:,i]+ Time_Norm *1e9/1e7, Truth[:,i].to(device))*self.OutWeights[i] # Pixel Time Shift in units of ns 
+                    if key == 'Chi_0':
+                        losses[key] = F.mse_loss(Geometry_Pred[:,i], Truth[:,i].to(device))*self.OutWeights[i]
+                    else:
+                        losses[key] = F.mse_loss(Geometry_Pred[:,i], Truth[:,i].to(device))*self.OutWeights[i]
         
-        if Extra_Loss_Info.get('PredStyle','SimpleGeometry') == 'Double_Chi_0':
-            losses = {}
-            losses['T0'] = F.mse_loss(Geometry_Pred[:,3]+ Time_Norm *1e9/1e7, Truth[:,2].to(device))*self.OutWeights[3] # Pixel Time Shift in units of ns
-            losses['Rp'] = F.mse_loss(Geometry_Pred[:,2], Truth[:,1].to(device))*self.OutWeights[2]
-
-            Truth_Chi_0_cos = Truth[:,0].to(device)
-            Truth_Chi_0_sin = torch.sqrt(1 - Truth_Chi_0_cos**2 + 1e-8) # Add small epsilon for numerical stability
-            losses['Chi_0'] = F.mse_loss(Geometry_Pred[:,0], Truth_Chi_0_cos)*self.OutWeights[0] + F.mse_loss(Geometry_Pred[:,1], Truth_Chi_0_sin)*self.OutWeights[1]
-        if Extra_Loss_Info.get('PredStyle','SimpleGeometry') == 'Unnormed_Chi_0':
-            losses = {}
-            losses['Chi_0'] = F.mse_loss(Geometry_Pred[:,0], torch.acos(Truth[:,0].to(device)))     *self.OutWeights[0]
-            losses['Rp'] = F.mse_loss(Geometry_Pred[:,1], Truth[:,1].to(device))                    *self.OutWeights[1]
-            losses['T0'] = F.mse_loss(Geometry_Pred[:,2]+ Time_Norm *1e9/1e7, Truth[:,2].to(device))*self.OutWeights[2]
-
-        else:
-            losses = {}
-            for i,key in enumerate(self.keys):
-                if key == 'T0':
-                    losses[key] = F.mse_loss(Geometry_Pred[:,i]+ Time_Norm *1e9/1e7, Truth[:,i].to(device))*self.OutWeights[i] # Pixel Time Shift in units of ns 
-                if key == 'Chi_0':
-                    losses[key] = F.mse_loss(Geometry_Pred[:,i], Truth[:,i].to(device))*self.OutWeights[i]
-                else:
-                    losses[key] = F.mse_loss(Geometry_Pred[:,i], Truth[:,i].to(device))*self.OutWeights[i]
-            
 
 
 
-        losses['Total'] = sum(losses[key] for key in self.keys)
+        # ---- Profile Loss ---- #
+        if self.Train_Type != 'Geometry':
+            # ---- Loss AE block ----
+
+            pix_iter_recons = Pred.get('pix_iter_reconstructions', None)
+            pix_target      = Pred.get('pix_target',               None)
+            pix_mask        = Pred.get('pix_mask',                 None)
+
+            if (pix_iter_recons is not None) and (pix_target is not None) and (pix_mask is not None):
+                mask_expanded = pix_mask.unsqueeze(-1).expand_as(pix_target)
+                target_valid  = pix_target[mask_expanded]
+                
+                if Extra_Loss_Info.get('AE_loss_style', 'MSE') == 'MSE':
+                    iter_losses = []
+                    for pix_recon in pix_iter_recons:
+                        iter_losses.append(F.mse_loss(pix_recon[mask_expanded], target_valid))
+                
+                elif Extra_Loss_Info.get('AE_loss_style', 'MSE') == 'MAE':
+                    iter_losses = []
+                    for pix_recon in pix_iter_recons:
+                        iter_losses.append(F.l1_loss(pix_recon[mask_expanded], target_valid))
+
+                elif Extra_Loss_Info.get('AE_loss_style', 'MSE') == 'Ratio':
+                    iter_losses = []
+                    valid_target_mask_2 = target_valid > 0.5                        # (N_valid,) — compute once outside loop
+
+                    for pix_recon in pix_iter_recons:
+                        recon_valid  = pix_recon[mask_expanded]                     # (N_valid,)
+
+                        recon_safe   = recon_valid [valid_target_mask_2]            # filter both before dividing
+                        target_safe  = target_valid[valid_target_mask_2]
+
+                        ratio = recon_safe / target_safe
+                        iter_losses.append(torch.mean((ratio - 1) ** 2))
+
+                ae_lambda    = Extra_Loss_Info.get('ae_lambda', 0.1)
+                losses['AE'] = ae_lambda * torch.stack(iter_losses).mean()
+
+        # ---- Total Loss ---- #
+        losses['Total'] = sum(losses[key] for key in losses.keys())
         if not self.ReturnTensor: losses = {key:loss.item() for key,loss in losses.items()}
         
         return losses
     
 
-class Validate_class():
-    '''
-    Class Variant of the validate call
-    Takes model, Dataset, Loss Function, device, keys
-    Dataset is defined as ProcessingDatasetContainer in the Dataset2.py
-    keys are to be used in the loss function
-    BatchSize to change in case it doesnt fit into memory
-    Returns the average loss
-    '''
-    def __init__(self, Loss_Info, **kwargs):
-        self.Loss_Info = merge_parameters(Loss_Info, kwargs)
-        self.Train_Type = self.Loss_Info.get('Train_Type', 'Geometry')
-        # No Need to do assertions, assuming they will be tripped by loss long before validation is called
 
+class Validate_class(): 
+    def __init__(self, Loss_Info, **kwargs):
+        self.Loss_Info  = merge_parameters(Loss_Info, kwargs)
+        self.Train_Type = self.Loss_Info.get('Train_Type', 'Geometry')
+
+        # print(f' Validation being initialised with the following Loss Info: {self.Loss_Info}')
+        # assert False, 'Hey wat The fuhuq'
 
     def __call__(self, model, Dataset, Loss, Extra_Loss_Info, **kwargs):
-        Loss_info = merge_parameters(Extra_Loss_Info, kwargs)
+        Loss_info  = merge_parameters(Extra_Loss_Info, kwargs)
         Debug_Mode = Loss_info.get('Debug_Mode', False)
 
         if Debug_Mode: print('################ VALIDATION ################')
 
-        # make sure the Dataset State is Val
-        Dataset.State = 'Val'
+        Dataset.State     = 'Val'
         TrainingBatchSize = Dataset.BatchSize
-        Dataset.BatchSize = len(Dataset) // 256 
-        # Dataset.BatchSize = 1 if Debug_Mode else BatchSize  # CARE THIS THING AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-        
+        Dataset.BatchSize = len(Dataset) // 256
+
         model.eval()
 
-        
+        loss_sse   = {}
+        loss_count = {}
 
-        Geometry_preds = []
-        Truths         = []
-        Time_Norms     = []
-        
         with torch.no_grad():
-            for i,(_, BatchMains, BatchAux, BatchTruth, _)  in enumerate(Dataset):
-                Model_out = model(BatchMains,BatchAux)
-                
-                Geometry_preds.append(Model_out['geometry'].to('cpu'))
-                
-                Time_Norms.append(Model_out.get('Time_Norm', torch.zeros(BatchTruth.shape[0])).to('cpu'))
-                Truths.append(BatchTruth.to('cpu'))
+            for i, (_, BatchMains, BatchAux, BatchTruth, _) in enumerate(Dataset):
+                Model_out  = model(BatchMains, BatchAux)
+                batch_size = BatchTruth.shape[0]
+
+                # Loss() handles both geometry and AE under the correct loss style
+                batch_losses = Loss(Model_out, BatchTruth, Loss_info)
+
+                for key, val in batch_losses.items():
+                    if key == 'Total': continue
+                    v = val.item() if hasattr(val, 'item') else float(val)
+                    loss_sse  [key] = loss_sse  .get(key, 0.0) + v * batch_size
+                    loss_count[key] = loss_count.get(key, 0  ) + batch_size
 
                 if Debug_Mode: break
 
-            
-            
-            
-            Geometry_preds = torch.cat(Geometry_preds,dim=0)
-            Time_Norms = torch.cat(Time_Norms,dim=0)
-            Truths     = torch.cat(Truths    ,dim=0)
-            
-        # Return Batch Size to old value
         Dataset.BatchSize = TrainingBatchSize
-        
-        Loss_inp_dict = {
-            'geometry'    : Geometry_preds,
-            'Time_Norm'  : Time_Norms
-        }
-        return Loss(Loss_inp_dict, Truths, Loss_info)
+
+        losses          = {key: loss_sse[key] / loss_count[key] for key in loss_sse}
+        losses['Total'] = sum(losses[key] for key in losses if key != 'Total')
+        return losses
 
 
-class Metric_class():
+class Metric_class(): # old
     def __init__(self, Loss_Info, **kwargs):
         self.Loss_Info = merge_parameters(Loss_Info, kwargs)
         self.Train_Type = self.Loss_Info.get('Train_Type', 'Geometry')
@@ -1062,5 +1442,87 @@ class Metric_class():
             for i,key in enumerate(['Chi_0','Rp','T0']):
                 Metrics[key] = torch.quantile(torch.abs(Geometry_preds[:,i] - Truths[:,i]), 0.68).item() 
                 
+        Dataset.BatchSize = TrainingBatchSize
+        return Metrics
+
+
+
+class Metric_class(): # TODO: Check Claude to be correct
+    def __init__(self, Loss_Info, **kwargs):
+        self.Loss_Info  = merge_parameters(Loss_Info, kwargs)
+        self.Train_Type = self.Loss_Info.get('Train_Type', 'Geometry')
+
+    def __call__(self, model, Dataset, Extra_Loss_Info, **kwargs):
+        Loss_info  = merge_parameters(Extra_Loss_Info, kwargs)
+        Debug_Mode = Loss_info.get('Debug_Mode', False)
+
+        if Debug_Mode: print('################ METRICS ################')
+
+        Dataset.State     = 'Val'
+        TrainingBatchSize = Dataset.BatchSize
+        Dataset.BatchSize = len(Dataset) // 256
+
+        model.eval()
+
+        Geometry_preds = []
+        Truths         = []
+        Time_Norms     = []
+
+        # AE: accumulate MAE as sum of absolute errors + pixel count
+        ae_sae         = 0.0   # sum of absolute errors
+        ae_pixel_count = 0
+
+        with torch.no_grad():
+            for i, (_, BatchMains, BatchAux, BatchTruth, _) in enumerate(Dataset):
+                Model_out = model(BatchMains, BatchAux)
+
+                Geometry_preds.append(Model_out['geometry'].to('cpu'))
+                Time_Norms.append(
+                    Model_out.get('Time_Norm', torch.zeros(BatchTruth.shape[0])).to('cpu')
+                )
+                Truths.append(BatchTruth.to('cpu'))
+
+                # ---- AE MAE accumulation ----
+                pix_recon  = Model_out.get('pix_reconstruction', None)
+                pix_target = Model_out.get('pix_target'        , None)
+                pix_mask   = Model_out.get('pix_mask'          , None)
+
+                if (pix_recon is not None) and (pix_target is not None) and (pix_mask is not None):
+                    mask_expanded = pix_mask.unsqueeze(-1).expand_as(pix_recon)
+                    valid_recon   = pix_recon [mask_expanded].to('cpu')
+                    valid_target  = pix_target[mask_expanded].to('cpu')
+
+                    ae_sae         += torch.abs(valid_recon - valid_target).sum().item()
+                    ae_pixel_count += valid_recon.numel()
+
+                if Debug_Mode: break
+
+        Geometry_preds = torch.cat(Geometry_preds, dim=0)
+        Time_Norms     = torch.cat(Time_Norms    , dim=0)
+        Truths         = torch.cat(Truths         , dim=0)
+
+        # ---- Geometry metrics ----
+        if Extra_Loss_Info.get('PredStyle', 'SimpleGeometry') in ['Default', 'SimpleGeometry']:
+            Geometry_preds[:,0] = torch.clip(Geometry_preds[:,0], -0.999, 0.999)
+        if Extra_Loss_Info.get('PredStyle', 'SimpleGeometry') == 'Unnormed_Chi_0':
+            Geometry_preds[:,0] = torch.acos(Geometry_preds[:,0])
+        if Extra_Loss_Info.get('PredStyle', 'SimpleGeometry') == 'Double_Chi_0':
+            Geometry_preds_Chi_0 = torch.cos(torch.atan2(Geometry_preds[:,0], Geometry_preds[:,1]))
+            Geometry_preds = torch.stack([Geometry_preds_Chi_0, Geometry_preds[:,2], Geometry_preds[:,3]], dim=-1)
+
+        Geometry_preds = Dataset.Unnormalise_Truth(Geometry_preds)
+        Truths         = Dataset.Unnormalise_Truth(Truths)
+        Geometry_preds[:,2] = Geometry_preds[:,2] + Time_Norms * 1e9 / 1e7
+
+        Metric_Style = Loss_info.get('Metric_Style', 'Default')
+        if Metric_Style in ['Default', 'Percentrile68']:
+            Metrics = {}
+            for i, key in enumerate(['Chi_0', 'Rp', 'T0']):
+                Metrics[key] = torch.quantile(torch.abs(Geometry_preds[:,i] - Truths[:,i]), 0.68).item()
+
+        # ---- AE metric ----
+        if ae_pixel_count > 0:
+            Metrics['AE_MAE'] = ae_sae / ae_pixel_count
+
         Dataset.BatchSize = TrainingBatchSize
         return Metrics

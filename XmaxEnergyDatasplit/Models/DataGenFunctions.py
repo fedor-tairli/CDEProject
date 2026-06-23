@@ -29,19 +29,43 @@ def Clean_Data_DoNothing(Dataset):
 # Import the functions from the other files, this is just the selection of the used functions
 import XmaxEnergy_Conv_DataGen
 
-# Data Generation Functions
+
+# ---- Regular Xmax Energy Datset ----
+
+# # Data Generation Functions 
+# Pass_Main     = Pass_Main_DoNothing
+
+# Pass_Aux      = XmaxEnergy_Conv_DataGen.Aux_Descriptors
+
+# Pass_Truth    = XmaxEnergy_Conv_DataGen.Truth_XmaxEnergy
+
+# Pass_Rec      = Pass_Rec_DoNothing
+
+# Pass_Graph    = XmaxEnergy_Conv_DataGen.Standard_Graph_Conv3d_Traces
+
+# Pass_MetaData = Pass_MetaData_DoNothing
+
+# # Extra Cleaning, probably not needed
+# Clean_Data = XmaxEnergy_Conv_DataGen.Low_Angular_Velocity_Cut
+# # Clean_Data = Clean_Data_DoNothing
+
+
+
+# ---- Energy Spoofed Dataset
+
+# Data Generation Functions 
 Pass_Main     = Pass_Main_DoNothing
 
-Pass_Aux      = XmaxEnergy_Conv_DataGen.Aux_Descriptors
+Pass_Aux      = Pass_Aux_DoNothing
 
-Pass_Truth    = XmaxEnergy_Conv_DataGen.Truth_XmaxEnergy
+Pass_Truth    = Pass_Truth_DoNothing
 
 Pass_Rec      = Pass_Rec_DoNothing
 
-Pass_Graph    = XmaxEnergy_Conv_DataGen.Standard_Graph_Conv3d_Traces
+Pass_Graph    = XmaxEnergy_Conv_DataGen.EnergySpoofed_Dataset
 
 Pass_MetaData = Pass_MetaData_DoNothing
 
 # Extra Cleaning, probably not needed
-Clean_Data = XmaxEnergy_Conv_DataGen.Low_Angular_Velocity_Cut
-# Clean_Data = Clean_Data_DoNothing
+
+Clean_Data = XmaxEnergy_Conv_DataGen.Rejection_Fail_Ids_cut

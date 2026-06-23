@@ -166,11 +166,13 @@ if __name__ == '__main__' and not TestingThings:
         from Model_FlatTimeFit_Conv2d import Metric_class as metric
 
         from Model_FlatTimeFit_Conv2d import Model_FlatTimeFit_Conv2d
+        from Model_FlatTimeFit_Conv2d import Model_FlatTimeFit_Conv2d_Simple
 
         
         
         Models = [
-            Model_FlatTimeFit_Conv2d,
+            # Model_FlatTimeFit_Conv2d,
+            Model_FlatTimeFit_Conv2d_Simple,
         ]
         
         if SelectNetwork is not None:
@@ -185,9 +187,12 @@ if __name__ == '__main__' and not TestingThings:
 
         Model_Parameters = {
             'in_main_channels': (1,)  ,
-            'N_kernels'       : 32   , 
+            'N_kernels'       : 16   , 
             'Train_Type'      : 'Geometry', # Profile, Geometry or Both
+            'Main_Folding'    : (2,10) ,  # Final shape would be (25,100) before model process
+            'PredStyle'       : 'Double_Chi_0',
             # 'kernel_size'     : 3   ,
+            'OutWeights'      : torch.tensor([1.0,1.0,1.0,0.0]),
             
         }
 
@@ -201,7 +206,9 @@ if __name__ == '__main__' and not TestingThings:
             'ValLossIncreasePatience': 5,
             'Optimiser': 'Adam',
             'Debug_Mode': Debug_Mode,
-            'Train_Type': Model_Parameters['Train_Type']
+            'Train_Type': Model_Parameters['Train_Type'],
+            'PredStyle': Model_Parameters['PredStyle'],
+            'OutWeights': Model_Parameters['OutWeights'],
         }
 
         if not Set_Custom_Seed: # Manually reset the seed, because some functions called torch.manual_seed before which changes it globaly
