@@ -68,4 +68,4 @@ Pass_MetaData = Pass_MetaData_DoNothing
 
 # Extra Cleaning, probably not needed
 
-Clean_Data = XmaxEnergy_Conv_DataGen.Rejection_Fail_Ids_cut
+Clean_Data = XmaxEnergy_Conv_DataGen.Rejection_Fail_Ids_cut_r

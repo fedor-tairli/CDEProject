@@ -61,6 +61,8 @@ class LossBuffer:
 class Loss_class():
 
     def __init__(self, Loss_info, **kwargs):
+        print()
+        print('Loss init Statements:')
         self.Loss_info = merge_parameters(Loss_info, kwargs)
         # Training Info
         self.OutWeights = self.Loss_info.get('OutWeights', torch.tensor([1.0,1.0]))
@@ -73,11 +75,25 @@ class Loss_class():
         self.Loss_Buffers = {key: LossBuffer(maxlen=3200) for key, out_weight in zip(self.keys, self.OutWeights) if out_weight > 0} # 3200 is default 100 batches
         print(f'Initialized Loss Buffers for keys: {[key for key, out_weight in zip(self.keys, self.OutWeights) if out_weight > 0]}')
 
-        self.Use_Buffer_Masking = self.Loss_info.get('Use_Buffer_Masking',False)
+        self.Huber_Deltas           = self.Loss_info.get('Huber_Deltas',[1,0.35]) # Somewhat based on distributions ive alredy seen
+        if self.Huber_Deltas != [1,0.35] and self.Debug_Mode: print(f"Using custom Huber Deltas: {self.Huber_Deltas}")
         
-        self.Huber_Deltas = self.Loss_info.get('Huber_Deltas',[1,0.25]) # Somewhat based on distributions ive alredy seen
-        
+        self.Use_Buffer_Masking     = self.Loss_info.get('Use_Buffer_Masking',False)
+        if self.Use_Buffer_Masking: print("Using Buffer Masking for Loss Calculation")
+
         self.Gate_Lambda_Percentile = self.Loss_info.get('Gate_Lambda_Percentile', 60)
+        if self.Gate_Lambda_Percentile != 60 and self.Debug_Mode: print(f"Using custom Gate Lambda Percentile: {self.Gate_Lambda_Percentile}")
+
+        self.Use_MAE_Loss           = self.Loss_info.get('Use_MAE_Loss', False)        
+        if self.Use_MAE_Loss: print("Using MAE Loss instead of Huber Loss")
+
+        self.Max_Lambda = self.Loss_info.get('Max_Lambda',0.04) if not self.Use_MAE_Loss else self.Loss_info.get('Max_Lambda',0.325)
+        
+
+
+        # Prints Suppression
+        self.Gate_Print_N_iterAgo = 1e99
+
 
     def __call__(self, Pred, Truth, Extra_Loss_Info, **kwargs):
         if isinstance(Pred, dict) and 'Rejection' in Pred:
@@ -136,15 +152,17 @@ class Loss_class():
                 losses[key] = torch.tensor(0.0, device=Output.device)
                 continue
 
-            i_Loss = F.huber_loss(Output[:,i], Truth[:,i], delta=self.Huber_Deltas[i], reduction='none')
+            i_Loss = F.huber_loss(Output[:,i], Truth[:,i], delta=self.Huber_Deltas[i], reduction='none') if not self.Use_MAE_Loss else F.l1_loss(Output[:,i], Truth[:,i], reduction='none')
             i_gate = Gate[:,i]
             
             # Check if gates are all at one or zero
             if torch.all(i_gate< 0.01):
+                if self.Gate_Print_N_iterAgo > 100:
+                    print(f"Warning: All gates for key {key} are closed, skipping gating for this key. batch = {Extra_Loss_Info.get('Batch','Unknown')}, Nsuppressed = { self.LastPrint_N_iterAgo }")
+                    self.Gate_Print_N_iterAgo = 0
+                else:
+                    self.Gate_Print_N_iterAgo += 1
                 
-                # print(f"Warning: All gates for key {key} are {'open' if torch.all(i_gate> 0.99) else 'closed'}, skipping gating for this key. batch = {Extra_Loss_Info.get('Batch','Unknown')}")
-                print(f"Warning: All gates for key {key} are closed, skipping gating for this key. batch = {Extra_Loss_Info.get('Batch','Unknown')}")
-
 
             i_buffer = self.Loss_Buffers[key]
             if i_buffer.is_ready():
@@ -153,8 +171,8 @@ class Loss_class():
                 Lambda = i_Loss.detach().mean()
 
             # Flat Lambda
-            Max_Lambda = 0.04
-            Lambda = min(Lambda, Max_Lambda) if use_adaptable_Lambda else Max_Lambda
+            
+            Lambda = min(Lambda, self.Max_Lambda) if use_adaptable_Lambda else self.Max_Lambda
             
             if not is_validation: i_buffer.push_batch(i_Loss)
             if Extra_Loss_Info.get('Epoch',0) > 1:
@@ -647,6 +665,124 @@ class Model_XmaxEnergy_Conv3d_fromRejection(Model_XmaxEnergy_Conv3d_withRejectio
     This model still has Rejection - see if it will prioritise outliers
 
     '''
+
+class Model_XmaxEnergy_Conv3d_LogTraces(nn.Module):
+    Name = 'Model_XmaxEnergy_Conv3d_LogTraces'
+    Description = '''
+    Convolutional Neural Network for SDP Reconstruction
+    Uses standard Conv3d Layers
+    Reconstruction is done for one telescope
+    No pooling is done, because it ruins the resolution
+    '''
+
+    def __init__(self,in_main_channels = (1,), N_kernels = 32, N_dense_nodes = 128, **kwargs):
+        # only one Main is expected
+        assert len(in_main_channels) == 1, 'Only one Main Channel is expected'
+        in_main_channels = in_main_channels[0]
+        self.kwargs = kwargs
+        dropout = kwargs['dropout'] if 'dropout' in kwargs else 0.2
+        
+        super(Model_XmaxEnergy_Conv3d_LogTraces, self).__init__()
+
+        # Activation Function
+        self.Conv_Activation  = nn.LeakyReLU()
+        self.Dense_Activation = nn.ReLU()
+        self.Angle_Activation = nn.Tanh()
+        self.Conv_Dropout     = nn.Dropout3d(dropout)
+        self.Dense_Dropout    = nn.Dropout(dropout)
+
+
+        self.conv0 = nn.Conv3d(in_channels=in_main_channels, out_channels=N_kernels, kernel_size=3, padding = (1,1,0) , stride = 1) # Out=> (N, N_kernels, 40, 20, 20)
+        self.Conv1 = Conv_Skip_Block_3d(in_channels=N_kernels, N_kernels=N_kernels, activation_function=self.Conv_Activation, kernel_size=(3,3,3), padding=(1,1,1), dropout=dropout)
+        self.Conv2 = Conv_Skip_Block_3d(in_channels=N_kernels, N_kernels=N_kernels, activation_function=self.Conv_Activation, kernel_size=(3,3,3), padding=(1,1,1), dropout=dropout)
+        self.Conv3 = Conv_Skip_Block_3d(in_channels=N_kernels, N_kernels=N_kernels, activation_function=self.Conv_Activation, kernel_size=(3,3,3), padding=(1,1,1), dropout=dropout)
+
+        self.Dense1 = nn.Linear(N_kernels*40*20*20, N_dense_nodes)
+        self.Dense2 = nn.Linear(N_dense_nodes, N_dense_nodes)
+        self.Dense3 = nn.Linear(N_dense_nodes, N_dense_nodes)
+
+        self.Xmax1 = nn.Linear(N_dense_nodes,N_dense_nodes)
+        self.Xmax2 = nn.Linear(N_dense_nodes,N_dense_nodes//2)
+        self.Xmax3 = nn.Linear(N_dense_nodes//2,1)
+
+        self.Energy1 = nn.Linear(N_dense_nodes,N_dense_nodes)
+        self.Energy2 = nn.Linear(N_dense_nodes,N_dense_nodes//2)
+        self.Energy3 = nn.Linear(N_dense_nodes//2,1)
+
+
+        self.OutWeights = kwargs.get('OutWeights', torch.tensor([1.0,1.0]))
+
+        # Best State Dict
+        self.best_state_dict = None
+
+    def forward(self,Graph,Aux=None):
+        
+        # Unpack the Graph Datata to Main
+        device = self.Dense1.weight.device
+        NEvents = len(Graph)
+        
+        TraceMain = torch.zeros(NEvents,40   ,20,22)
+        StartMain = torch.zeros(NEvents,1    ,20,22)
+        Main      = torch.zeros(NEvents,2100 ,20,22) 
+        # Have to allocate this massive tenosr to avoid memory issues
+        # Maybe there is a better way to do this, but for now i cannot think of it.
+
+        N_pixels_in_event = torch.tensor(list(map(len,map(lambda x : x[0], Graph)))).int()
+        EventIndices      = torch.repeat_interleave(torch.arange(NEvents),N_pixels_in_event).int()
+
+        Traces = torch.cat(list(map(lambda x : x[0], Graph)))
+        Xs     = torch.cat(list(map(lambda x : x[1], Graph)))
+        Ys     = torch.cat(list(map(lambda x : x[2], Graph)))
+        Pstart = torch.cat(list(map(lambda x : x[3], Graph)))
+
+        TraceMain[EventIndices,:,Xs,Ys] = Traces
+        StartMain[EventIndices,0,Xs,Ys] = Pstart
+
+        indices = (torch.arange(40).reshape(1,-1,1,1)+StartMain).long()
+        Main.scatter_(1,indices,TraceMain)
+        
+        # Rebin Main
+        # Main = Main.unfold(1,10,10)
+        # Main = Main.sum(-1)
+        # Main = Main[:,:80,:,:].unsqueeze(1).to(device)
+       
+       # Dont need to rebin this, because our dimensions are already small
+       # Just take the first 40 bins
+        Main = Main[:,:40,:,:].unsqueeze(1).to(device)
+        Main = torch.log10(Main + 1) # Log transform the traces to make the distribution more normal, should help with training
+        Main[torch.isnan(Main)] = -1
+
+        # Process the Data
+        Main = self.Conv_Activation(self.conv0(Main))
+        # Main = self.Conv_Dropout(Main)
+        Main = self.Conv1(Main)
+        Main = self.Conv2(Main)
+        Main = self.Conv3(Main)
+
+        # Flatten the output
+        Main = Main.view(Main.shape[0],-1)
+        # Dense and Output Layers
+        Main = self.Dense_Activation(self.Dense1(Main))
+        Main = self.Dense_Dropout(Main)
+        Main = self.Dense_Activation(self.Dense2(Main))
+        Main = self.Dense_Dropout(Main)
+        Main = self.Dense_Activation(self.Dense3(Main))
+
+        Xmax   = self.Dense_Activation(self.Xmax1(Main))
+        Xmax   = self.Dense_Activation(self.Xmax2(Xmax))
+        Xmax   = self.Xmax3(Xmax)
+
+        Energy = self.Dense_Activation(self.Energy1(Main))
+        Energy = self.Dense_Activation(self.Energy2(Energy))
+        Energy = self.Energy3(Energy)
+
+        Output = torch.cat([Xmax,Energy],dim=1)* self.OutWeights.to(device)
+        return Output
+
+    def save_best_state_dict(self):
+        del self.best_state_dict
+        self.best_state_dict = self.state_dict()
+
 
 
 class Model_XmaxEnergy_Conv3d_withRejection_ForSpoofedDataset(Model_XmaxEnergy_Conv3d_withRejection):

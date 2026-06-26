@@ -494,7 +494,7 @@ def High_Angular_Velocity_Cut(ProcessingDataset,**kwargs):
     Threshold = kwargs.get('Angular_Velocity_Threshold', 3.0) # Default threshold value
     Good_Event_Mask = All_Angular_Velocities >= Threshold
     Good_Event_Mask &= All_Angular_Velocities <20 # Also remove the very high angular velocity events, which are likely to be noise
-    ProcessingDataset._Good_Event_Mask = Good_Event_Mask.squeeze()
+    ProcessingDataset.set_Good_Events_Mask(Good_Event_Mask.squeeze())
     print(f'Applied Angular Velocity cut at {Threshold} Deg/100ns, keeping {Good_Event_Mask.sum().item()} out of {len(Good_Event_Mask)} events.')
 
 
@@ -504,13 +504,13 @@ def Low_Angular_Velocity_Cut(ProcessingDataset,**kwargs):
     Threshold = kwargs.get('Angular_Velocity_Threshold', 3.0) # Default threshold value
     Good_Event_Mask = All_Angular_Velocities <= Threshold
     Good_Event_Mask &= All_Angular_Velocities <20 # Also remove the very high angular velocity events, which are likely to be noise
-    ProcessingDataset._Good_Event_Mask = Good_Event_Mask.squeeze()
+    ProcessingDataset.set_Good_Events_Mask(Good_Event_Mask.squeeze())
     print(f'Applied Angular Velocity cut at {Threshold} Deg/100ns, keeping {Good_Event_Mask.sum().item()} out of {len(Good_Event_Mask)} events.')
 
 def All_Angular_Velocity(ProcessingDataset,**kwargs):
     All_Angular_Velocities = ProcessingDataset._Aux[:,7] # Assuming Angular Velocity is the 8th column in Aux
     Good_Event_Mask = (All_Angular_Velocities >= 0) & (All_Angular_Velocities <20) # Keep all events with valid angular velocity
-    ProcessingDataset._Good_Event_Mask = Good_Event_Mask.squeeze()
+    ProcessingDataset.set_Good_Events_Mask(Good_Event_Mask.squeeze())
     print(f'Keeping all events with valid Angular Velocity, keeping {Good_Event_Mask.sum().item()} out of {len(Good_Event_Mask)} events.')
 
 def Rejection_Fail_Ids_cut(ProcessingDataset,**kwargs):
@@ -526,6 +526,21 @@ def Rejection_Fail_Ids_cut(ProcessingDataset,**kwargs):
     EventIds = torch.tensor(ProcessingDataset._EventIds)
 
     Good_Event_Mask = ~torch.isin(EventIds, ids_tensor)
-    ProcessingDataset._Good_Event_Mask = Good_Event_Mask.squeeze()
+    ProcessingDataset.set_Good_Events_Mask(Good_Event_Mask.squeeze())
     print(f'Applied Rejection Fail IDs cut, keeping {Good_Event_Mask.sum().item()} out of {len(Good_Event_Mask)} events.')
 
+def Rejection_Fail_Ids_cut_r(ProcessingDataset,**kwargs):
+    Default_Rejection_IDs_Path = '/remote/tychodata/ftairli/work/CDEs/XmaxEnergyDatasplit/Code/fail_ids_from_rej.csv'
+    Rejection_IDs_Path = kwargs.get('Rejection_Fail_IDs_Path', Default_Rejection_IDs_Path)
+
+    if not os.path.exists(Rejection_IDs_Path):
+           raise FileNotFoundError(f'Rejection IDs file not found at {Rejection_IDs_Path}. Please provide a valid path to the rejection fail IDs file.') 
+    
+    ids = np.loadtxt(Rejection_IDs_Path, skiprows=1, dtype=int)
+    ids_tensor = torch.tensor(ids)
+
+    EventIds = torch.tensor(ProcessingDataset._EventIds)
+
+    Good_Event_Mask = torch.isin(EventIds, ids_tensor)
+    ProcessingDataset.set_Good_Events_Mask(Good_Event_Mask.squeeze())
+    print(f'Applied Rejection Fail IDs cut, keeping {Good_Event_Mask.sum().item()} out of {len(Good_Event_Mask)} events.')

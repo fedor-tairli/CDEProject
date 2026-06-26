@@ -137,6 +137,7 @@ class ProcessingDatasetContainer:
             self._ValIndeces   = None       # Indeces for the validation data
             self._TestIndeces  = None       # Indeces for the testing data
 
+            self._Good_Events_Mask = None   # Bool tensor of shape (N,), None = no cut
     # Functions to add the data will be defined in a separate file which will depend on the model type
     # This will allow for the addition of the data in a more general way
     
@@ -147,19 +148,19 @@ class ProcessingDatasetContainer:
 
     def __len__(self):
         return len(self.ActiveIndeces)
+    
     @property
     def ActiveIndeces(self):
-        '''Returns the active indeces'''
-        if self.State in ['Static','Build']:
-            return torch.arange(len(self._Truth))
-        elif self.State == 'Train':
-            return self._TrainIndeces
-        elif self.State == 'Val':
-            return self._ValIndeces
-        elif self.State == 'Test':
-            return self._TestIndeces
-        else:
-            raise ValueError(f'Unknown State: {self.State}')
+        '''Returns the active indices, optionally filtered by _Good_Events_Mask'''
+        if   self.State in ['Static','Build']: base = torch.arange(len(self._Truth))
+        elif self.State == 'Train':            base = self._TrainIndeces
+        elif self.State == 'Val':              base = self._ValIndeces
+        elif self.State == 'Test':             base = self._TestIndeces
+        else: raise ValueError(f'Unknown State: {self.State}')
+        
+        if self._Good_Events_Mask is not None:
+            return base[self._Good_Events_Mask[base]]
+        return base
 
     def AssignIndices(self,distribution = [0.7,0.2,0.1],seed = 1234):
         self.State = 'Static'
@@ -253,6 +254,18 @@ class ProcessingDatasetContainer:
 
     
 
+    def set_Good_Events_Mask(self, mask):
+        '''Set the good events mask. Must be called after AssignIndices.
+        mask: bool tensor of shape (N,) where N = len(self._Truth)
+        '''
+        assert self._TrainIndeces is not None, \
+            "AssignIndices must be called before setting _Good_Events_Mask — otherwise split indices are computed on the filtered set."
+        assert mask.dtype == torch.bool, \
+            f"Mask must be a bool tensor, got {mask.dtype}"
+        assert len(mask) == len(self._Truth), \
+            f"Mask length {len(mask)} does not match dataset size {len(self._Truth)}"
+        
+        self._Good_Events_Mask = mask
 
 
 

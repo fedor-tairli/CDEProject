@@ -19,9 +19,11 @@ elif 'tedtop' in hostname:
     print('Setting up paths for tedtop')
     sys.path.append('/home/fedor-tairli/work/CDEs/Dataset/')
 elif 'ycho' in hostname: 
-    sys.path.append('/remote/tychodata/ftairli/work/Projects/Common/')
+    sys.path.append('/remote/tychodata/ftairli/work/CDEs/Dataset/')
 else:
     sys.path.append('/cr/work/tairli/CDEs/Dataset/')
+
+
 
 # -------------------------------------------------------------------------
 
@@ -58,6 +60,7 @@ def LoadProcessingDataset(Path_To_Data, Path_To_Proc_Data, RunNames, Recalculate
 
         Dataset.Save(Path_To_Proc_Data, Name=OptionalName)
         print(f'Dataset used graphs = {Dataset.GraphData}')
+    Dataset.AssignIndices()
     Clean_Data(Dataset)
     return Dataset
 
@@ -127,7 +130,6 @@ if SelectNetwork == -1:
 
 if DoNotTrain: print('No Training will be done, Just Reading the Dataset')
 Dataset = LoadProcessingDataset(Path_To_Data, Path_To_Proc_Data, RunNames, RecalculateDataset=RecalculateDataset, NeedTraces=NeedTraces, OptionalName=DatasetName)
-Dataset.AssignIndices()
 Dataset.RandomIter = Dataset_RandomIter
 
 # -------------------------------------------------------------------------
@@ -156,12 +158,14 @@ if not DoNotTrain:
     # Model_XmaxEnergy_Conv3d_withRejection = Model_XmaxEnergy.Model_XmaxEnergy_Conv3d_withRejection
     # Model_XmaxEnergy_Conv3d_withRejection_ForSpoofedDataset = Model_XmaxEnergy.Model_XmaxEnergy_Conv3d_withRejection_ForSpoofedDataset
     Model_XmaxEnergy_Conv3d_fromRejection = Model_XmaxEnergy.Model_XmaxEnergy_Conv3d_fromRejection
+    # Model_XmaxEnergy_Conv3d_LogTraces = Model_XmaxEnergy.Model_XmaxEnergy_Conv3d_LogTraces
 
     Models = [
         # Model_XmaxEnergy_Conv3d,
         # Model_XmaxEnergy_Conv3d_withRejection,
         # Model_XmaxEnergy_Conv3d_withRejection_ForSpoofedDataset,
         Model_XmaxEnergy_Conv3d_fromRejection,
+        # Model_XmaxEnergy_Conv3d_LogTraces,
     ]
 
     if SelectNetwork is not None:
@@ -197,6 +201,7 @@ if not DoNotTrain:
         'conv2d_init_type'        : 'normal',
         'model_Dropout'           : 0.2,
         'Debug_Mode'              : Debug_Mode,
+
     }
 
     Training_Parameters = {
@@ -217,6 +222,8 @@ if not DoNotTrain:
         'OutWeights'              : Model_Parameters['OutWeights'],
         'PredStyle'               : Model_Parameters['PredStyle'],
         'Gate_Threshold'          : Model_Parameters['Gate_Threshold'],
+        'Use_MAE_Loss'            : False,
+        'Max_Lambda'              : 1.0,
 
 
 
